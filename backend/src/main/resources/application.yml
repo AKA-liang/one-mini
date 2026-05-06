@@ -19,6 +19,7 @@ spring:
       hibernate:
         dialect: org.hibernate.dialect.MySQLDialect
         format_sql: true
+    defer-datasource-initialization: true
   
   data:
     redis:
@@ -35,7 +36,8 @@ spring:
   
   sql:
     init:
-      mode: never
+      mode: always
+      data-locations: classpath:data.sql
 
 file:
   upload:

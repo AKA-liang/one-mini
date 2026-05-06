@@ -1,98 +1,23 @@
--- One Mini Database Schema
+-- One Mini Seed Data
+-- Tables are auto-created by JPA (ddl-auto=update), only seed data here.
 
-CREATE DATABASE IF NOT EXISTS one_mini CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
-USE one_mini;
-
--- Agent table (renamed from Employee)
-CREATE TABLE IF NOT EXISTS agent (
-    id BIGINT AUTO_INCREMENT PRIMARY KEY,
-    name VARCHAR(100) NOT NULL,
-    role VARCHAR(100),
-    position VARCHAR(100),
-    avatar VARCHAR(500),
-    status VARCHAR(50) DEFAULT 'online',
-    current_task VARCHAR(500),
-    recent_output VARCHAR(500),
-    is_on_duty BOOLEAN DEFAULT TRUE,
-    schedule VARCHAR(50),
-    category VARCHAR(50),
-    skills VARCHAR(1000),
-    tasks_completed INT DEFAULT 0,
-    accuracy VARCHAR(20) DEFAULT '95.0%',
-    avg_response_time VARCHAR(20) DEFAULT '0.5s',
-    prompt TEXT,
-    create_time DATETIME DEFAULT CURRENT_TIMESTAMP,
-    update_time DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
--- Boss table
-CREATE TABLE IF NOT EXISTS boss (
-    id BIGINT AUTO_INCREMENT PRIMARY KEY,
-    name VARCHAR(100) NOT NULL,
-    position VARCHAR(200),
-    email VARCHAR(200),
-    phone VARCHAR(50),
-    department VARCHAR(200),
-    bio VARCHAR(500),
-    avatar VARCHAR(500),
-    join_date VARCHAR(20),
-    team_size INT DEFAULT 13,
-    projects_completed INT DEFAULT 48,
-    efficiency VARCHAR(50) DEFAULT '98.5%',
-    create_time DATETIME DEFAULT CURRENT_TIMESTAMP,
-    update_time DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
--- Site config table
-CREATE TABLE IF NOT EXISTS site_config (
-    id BIGINT AUTO_INCREMENT PRIMARY KEY,
-    site_name VARCHAR(200),
-    site_subtitle VARCHAR(500),
-    total_employees INT DEFAULT 13,
-    online_employees INT DEFAULT 13,
-    create_time DATETIME DEFAULT CURRENT_TIMESTAMP,
-    update_time DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
--- Task table (new)
-CREATE TABLE IF NOT EXISTS task (
-    id BIGINT AUTO_INCREMENT PRIMARY KEY,
-    task_id VARCHAR(64) UNIQUE NOT NULL,
-    trace_id VARCHAR(64),
-    type VARCHAR(50) NOT NULL COMMENT 'product_analysis / finance_review',
-    status VARCHAR(20) DEFAULT 'pending' COMMENT 'pending / running / completed / failed',
-    input_json TEXT,
-    output_json TEXT,
-    create_time DATETIME DEFAULT CURRENT_TIMESTAMP,
-    update_time DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
--- Task step table (new)
-CREATE TABLE IF NOT EXISTS task_step (
-    id BIGINT AUTO_INCREMENT PRIMARY KEY,
-    task_id VARCHAR(64) NOT NULL,
-    agent_name VARCHAR(50) NOT NULL COMMENT 'product_picker / finance_analyst',
-    status VARCHAR(20) DEFAULT 'pending',
-    input_json TEXT,
-    output_json TEXT,
-    error_message TEXT,
-    create_time DATETIME DEFAULT CURRENT_TIMESTAMP,
-    update_time DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    INDEX idx_task_id (task_id)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
--- Agent log table (new)
-CREATE TABLE IF NOT EXISTS agent_log (
-    id BIGINT AUTO_INCREMENT PRIMARY KEY,
-    task_id VARCHAR(64),
-    agent_name VARCHAR(50),
-    action VARCHAR(100),
-    level VARCHAR(10) DEFAULT 'info' COMMENT 'info / warn / error',
-    message TEXT,
-    create_time DATETIME DEFAULT CURRENT_TIMESTAMP,
-    INDEX idx_task_id (task_id),
-    INDEX idx_agent_name (agent_name)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+-- Insert default agents
+INSERT INTO agent (id, name, role, position, avatar, status, current_task, recent_output, is_on_duty, schedule, category, skills, tasks_completed, accuracy, avg_response_time, prompt)
+VALUES
+(1, '选品专家', 'AI电商系列', '负责商品选品、市场调研、爆款挖掘', 'https://api.dicebear.com/7.x/pixel-art/svg?seed=product-panda&backgroundColor=b6e3f4', 'working', '分析市场爆款趋势', '本周已选出15款潜力爆品', 1, '08:00-20:00', 'ecommerce', '市场洞察, 趋势预测, 选品技巧, 竞品分析', 234, '96.8%', '0.3s', '你是一位专业的电商选品专家，精通市场分析、竞品调研和爆款挖掘。你需要分析TikTok、Red等平台的热销趋势，结合用户画像和消费心理，筛选出具有高增长潜力的商品。选品时需综合考虑：1）市场需求量和增长速度；2）竞争激烈程度；3）利润空间和ROI预期；4）物流难度和供应链稳定性；5）合规性和售后风险。选品完成后，需输出详细的选品报告，包括：商品定位、目标客群、定价策略、推广建议和风险提示。'),
+(2, '财务专家', 'AI电商系列', '负责财务报表、成本核算、税务筹划', 'https://api.dicebear.com/7.x/pixel-art/svg?seed=finance-fox&backgroundColor=ffd5dc', 'working', '整理本月财务报表', '已完成50+笔账目核对', 1, '09:00-18:00', 'ecommerce', '账务处理, 报表生成, 成本分析, 税务筹划', 567, '99.2%', '0.5s', '你是一位资深的电商财务专家，负责成本核算、利润分析和税务筹划。你需要基于实时汇率、物流成本、广告投放费用、退货率等数据，进行精细化的ROI预测。需要掌握294+历史案例的收益率数据，能够根据商品特性快速评估盈利模型。当选品Agent提交新品时，你需要：1）核算采购成本和物流成本；2）估算平台佣金和广告费用；3）预测退货率和售后成本；4）计算预期利润率和回本周期；5）给出是否值得推广的专业建议。'),
+(3, '推广专家', 'AI电商系列', '负责营销推广、内容创作、社媒运营', 'https://api.dicebear.com/7.x/pixel-art/svg?seed=marketing-cat&backgroundColor=ffdfbf', 'online', '优化直播推广策略', '直播观看人数提升30%', 1, '10:00-22:00', 'ecommerce', '直播策划, 社媒营销, 内容创作, 数据分析', 189, '94.5%', '0.2s', '你是一位全栈电商推广专家，精通抖音、闲鱼、飞书等多平台运营。你需要根据选品特性，自动调用ComfyUI生成高质量的营销素材，包括：商品主图、短视频脚本、直播话术种草文案等。推广策略需结合平台特性：抖音侧重短视频和直播；闲鱼侧重二手闲置场景；飞书侧重私域社群运营。内容创作要突出：1）差异化卖点；2）用户痛点共鸣；3）社会证明和口碑；4）限时优惠和紧迫感。分发后需持续追踪数据，优化投放策略。'),
+(4, '运营专家', 'AI电商系列', '负责店铺运营、SEO优化、用户增长', 'https://api.dicebear.com/7.x/pixel-art/svg?seed=operations-bear&backgroundColor=c0aede', 'working', '优化店铺搜索排名', '店铺流量提升45%', 1, '08:00-20:00', 'ecommerce', '店铺运营, SEO优化, 活动策划, 用户运营', 312, '97.1%', '0.4s', '你是一位电商店铺运营专家，负责整体店铺的健康增长。你需要制定并执行完整的运营策略，包括：1）商品上下架和库存管理；2）标题关键词优化和搜索引擎排名；3）店铺装修和视觉升级；4）大促活动策划和执行；5）用户生命周期管理和复购策略。运营过程中需持续关注：DSR评分变化、搜索排名波动、转化率异常、竞品动态等核心指标。遇到问题时，需快速诊断原因并制定优化方案。'),
+(5, '客服专员', 'AI电商系列', '负责客户咨询、售后服务、投诉处理', 'https://api.dicebear.com/7.x/pixel-art/svg?seed=service-rabbit&backgroundColor=d1f4d1', 'online', '处理客户咨询', '已响应200+客户咨询', 1, '24/7 在线', 'ecommerce', '智能问答, 投诉处理, 售后服务, 情感分析', 1247, '95.3%', '0.1s', '你是一位高情商的电商客服专员，拥有1M级的私域知识库支持。客服是Token消耗的核心环节，需要深度理解和说服客户。你需要：1）快速理解客户问题和诉求；2）从知识库中检索最合适的解答；3）结合商品详情、选品调研和配置文档进行深度说服；4）处理售后问题和投诉升级；5）挖掘二次销售和交叉销售机会。遇到刁钻问题时，需能够溯源到选品Agent的调研记录和财务Agent的ROI分析，综合给出最优解。'),
+(6, '交付专家', 'AI电商系列', '负责订单管理、物流跟踪、供应链协调', 'https://api.dicebear.com/7.x/pixel-art/svg?seed=delivery-dog&backgroundColor=bae1ff', 'working', '监控订单处理进度', '已处理380笔订单', 1, '07:00-23:00', 'ecommerce', '订单管理, 物流跟踪, 库存管理, 供应链优化', 892, '98.7%', '0.2s', '你是一位专业的电商交付专家，负责订单全流程管理和供应链协调。一旦客服Agent成交订单，你需要自动触发：1）OpenClaw镜像的自动部署；2）软件序列号的自动生成；3）物流信息的实时跟踪；4）异常订单的预警和处理；5）供应链瓶颈的协调解决。交付环节需要与选品Agent（了解商品特性）、客服Agent（了解客户需求）、技术Agent（了解系统配置）紧密协作，确保交付的及时性和准确性。'),
+(7, '架构师', 'AI编程系列', '负责系统架构设计、技术选型、性能优化', 'https://api.dicebear.com/7.x/pixel-art/svg?seed=architect-owl&backgroundColor=ffd5dc', 'working', '设计微服务架构方案', '完成3套架构设计方案', 1, '09:00-21:00', 'programming', '系统设计, 架构评审, 技术选型, 性能优化', 78, '98.9%', '2.5s', '你是一位资深的系统架构师，负责Omni-Ecom OS的整体技术架构设计。你需要设计高可用、可扩展、易维护的系统架构，包括：1）微服务拆分和边界定义；2）消息总线和事件驱动设计；3）数据存储和缓存策略；4）安全认证和权限管理；5）监控告警和日志系统。架构设计需平衡：技术先进性、团队能力匹配、项目周期限制、运维成本等多方面因素。'),
+(8, '前端工程师', 'AI编程系列', '负责前端开发、组件封装、界面优化', 'https://api.dicebear.com/7.x/pixel-art/svg?seed=frontend-unicorn&backgroundColor=ffdfbf', 'online', '开发新组件库', '本周完成15个组件开发', 1, '10:00-20:00', 'programming', 'Vue/React, TypeScript, CSS, 性能调优', 156, '96.4%', '1.8s', '你是一位专业的前端工程师，负责OPC智能体控制中心的界面开发。你需要：1）实现高保真的UI设计，确保用户体验流畅；2）封装可复用的Vue组件库；3）优化首屏加载和交互响应速度；4）实现复杂的数据可视化图表；5）处理多端适配和浏览器兼容性问题。前端开发需遵循：组件化开发、样式规范统一、代码质量高、可维护性强等原则。'),
+(9, '后端工程师', 'AI编程系列', '负责API开发、数据库设计、服务端开发', 'https://api.dicebear.com/7.x/pixel-art/svg?seed=backend-tiger&backgroundColor=c0aede', 'working', '优化数据库查询性能', 'API响应时间降低60%', 1, '09:00-21:00', 'programming', 'Node.js/Java, 数据库设计, API开发, 微服务', 203, '97.8%', '2.1s', '你是一位经验丰富的后端工程师，负责服务端API开发和数据库设计。你需要：1）设计高效的RESTful API接口；2）优化数据库查询性能和索引设计；3）实现消息队列和异步任务处理；4）开发数据导出和报表生成功能；5）编写完善的接口文档和单元测试。后端开发需确保：接口安全性、数据一致性、错误处理完善、日志记录完整。'),
+(10, '运维工程师', 'AI编程系列', '负责系统监控、自动化运维、故障处理', 'https://api.dicebear.com/7.x/pixel-art/svg?seed=devops-penguin&backgroundColor=b6e3f4', 'online', '监控系统运行状态', '成功预警3次潜在故障', 1, '24/7 值班', 'programming', 'Docker/K8s, CI/CD, 监控告警, 自动化运维', 445, '99.1%', '0.5s', '你是一位全能的运维工程师，负责系统的7x24持续运行保障。你需要：1）搭建Docker/K8s容器化部署环境；2）配置自动化CI/CD流水线；3）部署Prometheus+Grafana监控告警系统；4）处理生产环境的突发故障；5）定期进行安全漏洞扫描和修复。运维的核心职责是：预防胜于治疗，快速定位问题，最小化故障影响。'),
+(11, '运营开发', 'AI编程系列', '负责数据脚本、自动化工具、报表系统', 'https://api.dicebear.com/7.x/pixel-art/svg?seed=opsdev-koala&backgroundColor=d1f4d1', 'working', '开发数据分析脚本', '自动化10+运营流程', 1, '10:00-19:00', 'programming', 'Python, 数据分析, 脚本开发, 报表自动化', 287, '95.9%', '1.2s', '你是一位运营开发工程师，负责用代码提升运营效率。你需要：1）开发数据采集和清洗脚本；2）搭建自动化报表生成系统；3）编写运营场景的辅助工具；4）分析业务数据挖掘增长机会；5）实现运营流程的自动化。你是业务和技术之间的桥梁，需要深入理解业务逻辑，将重复性工作转化为自动化工具，释放运营团队的创造力。'),
+(12, '培训专家', 'AI培训板块', '负责课程设计、培训授课、学员辅导', 'https://api.dicebear.com/7.x/pixel-art/svg?seed=trainer-elephant&backgroundColor=ffd5dc', 'online', '准备新课程内容', '完成课程大纲更新', 1, '09:00-18:00', 'training', '课程设计, 学员辅导, AI应用, 效果评估', 89, '96.2%', '1.5s', '你是一位专业的AI培训专家，负责Omni-Ecom OS的使用培训。你需要：1）设计面向不同角色的培训课程体系；2）录制实操演示视频和编写操作手册；3）直播授课和在线答疑；4）跟踪学员学习进度和效果评估；5）收集反馈持续优化课程内容。培训目标是：让每位用户都能充分发挥系统的能力，实现业务增长。'),
+(13, '学习顾问', 'AI培训板块', '负责学习规划、需求分析、效果评估', 'https://api.dicebear.com/7.x/pixel-art/svg?seed=advisor-deer&backgroundColor=bae1ff', 'working', '制定学习路径', '为50名学员制定计划', 1, '08:00-20:00', 'training', '学习规划, 需求分析, 进度跟踪, 成果评估', 178, '94.7%', '1.8s', '你是一位专业的学习顾问，为每位学员提供个性化的学习规划。你需要：1）分析学员的背景、目标和现有能力；2）制定循序渐进的学习路径和里程碑；3）推荐最合适的学习资源和工具；4）定期跟踪学习进度和遇到的困难；5）评估学习效果并调整策略。学习顾问的核心价值是：因材施教，让每个人都能在适合自己的节奏中快速成长。')
+ON DUPLICATE KEY UPDATE name=VALUES(name);
 
 -- Insert default boss
 INSERT INTO boss (name, position, email, phone, department, bio, avatar, join_date, team_size, projects_completed, efficiency)
