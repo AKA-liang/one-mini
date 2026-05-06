@@ -8,7 +8,7 @@ services:
       MYSQL_CHARSET: utf8mb4
       MYSQL_COLLATION: utf8mb4_unicode_ci
     ports:
-      - "${DB_PORT:-3306}:3306"
+      - "${DB_PORT:-3307}:3306"
     volumes:
       - mysql_data:/var/lib/mysql
       - ./backend/src/main/resources/data.sql:/docker-entrypoint-initdb.d/01-init.sql
@@ -25,7 +25,7 @@ services:
     image: redis:7-alpine
     container_name: one-mini-redis
     ports:
-      - "${REDIS_PORT:-6379}:6379"
+      - "${REDIS_PORT:-6380}:6379"
     volumes:
       - redis_data:/data
     healthcheck:
@@ -65,17 +65,13 @@ services:
       context: ./ai-engine
       dockerfile: Dockerfile
     container_name: one-mini-ai-engine
+    env_file:
+      - ./ai-engine/.env
     environment:
       REDIS_HOST: redis
       REDIS_PORT: 6379
-      VOLC_ACCESS_KEY: ${VOLC_ACCESS_KEY}
-      VOLC_SECRET_KEY: ${VOLC_SECRET_KEY}
-      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY}
-      DB_HOST: mysql
-      DB_PORT: 3306
-      DB_NAME: one_mini
-      DB_USER: root
-      DB_PASSWORD: ${DB_PASSWORD:-one_mini_2026}
+      APP_HOST: 0.0.0.0
+      APP_PORT: 8001
     depends_on:
       redis:
         condition: service_healthy
