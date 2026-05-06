@@ -1,0 +1,48 @@
+server:
+  port: 8080
+
+spring:
+  application:
+    name: one-mini-backend
+  
+  datasource:
+    url: ${DB_URL:jdbc:mysql://localhost:3307/one_mini?useUnicode=true&characterEncoding=utf8&useSSL=false&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true}
+    username: ${DB_USER:root}
+    password: ${DB_PASSWORD:one_mini_dev}
+    driver-class-name: com.mysql.cj.jdbc.Driver
+  
+  jpa:
+    hibernate:
+      ddl-auto: update
+    show-sql: true
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.MySQLDialect
+        format_sql: true
+  
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6380}
+      password: ${REDIS_PASSWORD:}
+      database: 0
+  
+  servlet:
+    multipart:
+      enabled: true
+      max-file-size: 10MB
+      max-request-size: 10MB
+  
+  sql:
+    init:
+      mode: never
+
+file:
+  upload:
+    path: ${FILE_UPLOAD_PATH:./uploads}
+    allowed-extensions: jpg,jpeg,png,gif,webp
+
+logging:
+  level:
+    com.one.mini: DEBUG
+    org.springframework.data.redis: INFO

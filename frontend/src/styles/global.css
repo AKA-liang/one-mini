@@ -1,0 +1,92 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  body {
+    @apply bg-surface-400 text-gray-100 antialiased;
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  }
+
+  ::-webkit-scrollbar {
+    @apply w-1.5;
+  }
+
+  ::-webkit-scrollbar-track {
+    @apply bg-surface-300;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    @apply bg-primary-700 rounded-full;
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    @apply bg-primary-600;
+  }
+}
+
+@layer components {
+  .glass-card {
+    @apply bg-surface-50/40 backdrop-blur-md border border-white/10 rounded-2xl;
+  }
+
+  .glass-card-hover {
+    @apply glass-card transition-all duration-300 hover:bg-surface-50/60 hover:border-primary-400/30 hover:shadow-lg hover:shadow-primary-500/10;
+  }
+
+  .gradient-text {
+    @apply bg-clip-text text-transparent bg-gradient-to-r from-primary-400 to-accent-400;
+  }
+
+  .btn-primary {
+    @apply px-4 py-2.5 bg-gradient-to-r from-primary-500 to-primary-600 text-white rounded-xl font-medium
+           transition-all duration-300 hover:from-primary-400 hover:to-primary-500
+           hover:shadow-lg hover:shadow-primary-500/25 active:scale-[0.98];
+  }
+
+  .btn-secondary {
+    @apply px-4 py-2.5 bg-surface-100/50 text-gray-300 border border-white/10 rounded-xl font-medium
+           transition-all duration-300 hover:bg-surface-100/80 hover:text-white hover:border-white/20;
+  }
+
+  .badge-pending {
+    @apply px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-500/20 text-gray-400;
+  }
+
+  .badge-running {
+    @apply px-2.5 py-0.5 rounded-full text-xs font-medium bg-primary-500/20 text-primary-400 animate-pulse-slow;
+  }
+
+  .badge-completed {
+    @apply px-2.5 py-0.5 rounded-full text-xs font-medium bg-emerald-500/20 text-emerald-400;
+  }
+
+  .badge-failed {
+    @apply px-2.5 py-0.5 rounded-full text-xs font-medium bg-red-500/20 text-red-400;
+  }
+}
+
+.fade-enter-active,
+.fade-leave-active {
+  transition: opacity 0.3s ease;
+}
+
+.fade-enter-from,
+.fade-leave-to {
+  opacity: 0;
+}
+
+.slide-up-enter-active,
+.slide-up-leave-active {
+  transition: all 0.3s ease;
+}
+
+.slide-up-enter-from {
+  opacity: 0;
+  transform: translateY(20px);
+}
+
+.slide-up-leave-to {
+  opacity: 0;
+  transform: translateY(-20px);
+}

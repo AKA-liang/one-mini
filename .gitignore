@@ -1,0 +1,53 @@
+# IDE
+.idea/
+.vscode/
+*.iml
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Environment
+.env
+.env.local
+.env.production
+
+# Node
+node_modules/
+dist/
+*.local
+
+# Java
+target/
+*.class
+*.jar
+*.war
+.gradle/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+*.egg-info/
+
+# Docker
+*.log
+
+# Uploads
+uploads/
+
+# Data
+data/
+*.db
+*.sqlite
+
+# Playwright
+.playwright/
+
+# Build output
+frontend/dist/
+backend/target/
