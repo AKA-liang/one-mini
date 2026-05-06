@@ -1,11 +1,11 @@
 <template>
-  <div class="dashboard">
+  <div class="w-full">
     <CategoryFilter
       :categories="categories"
       :selected="selectedCategory"
       @select="$emit('selectCategory', $event)"
     />
-    <div class="agents-grid">
+    <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6 mt-8">
       <AgentCard
         v-for="agent in filteredAgents"
         :key="agent.id"
@@ -40,23 +40,3 @@ const filteredAgents = computed(() => {
   return props.agents.filter(a => a.category === props.selectedCategory)
 })
 </script>
-
-<style scoped>
-.dashboard {
-  width: 100%;
-}
-
-.agents-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(380px, 1fr));
-  gap: 24px;
-  margin-top: 32px;
-}
-
-@media (max-width: 768px) {
-  .agents-grid {
-    grid-template-columns: 1fr;
-    gap: 16px;
-  }
-}
-</style>

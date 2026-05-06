@@ -86,6 +86,9 @@
       </div>
     </div>
 
+    <!-- ROI Chart -->
+    <RoiChart />
+
     <!-- Task Detail Modal -->
     <Teleport to="body">
       <Transition name="fade">
@@ -189,6 +192,7 @@
 import { ref, computed, onMounted } from 'vue'
 import { taskApi, type TaskVO } from '../api/task'
 import ProductGrid from '../components/ProductGrid.vue'
+import RoiChart from '../components/RoiChart.vue'
 import { Plus, ClipboardList, Clock, ChevronRight, X, Loader2 } from 'lucide-vue-next'
 
 const tasks = ref<TaskVO[]>([])
