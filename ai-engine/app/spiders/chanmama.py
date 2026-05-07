@@ -3,8 +3,8 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import random
 import re
-import os
 from typing import Any
 
 from playwright.async_api import async_playwright
@@ -16,13 +16,16 @@ CHANMAMA_BASE_URL = "https://www.chanmama.com"
 
 _last_request_time = 0.0
 _MIN_INTERVAL = 3.0
+_MAX_INTERVAL = 7.0
 
 
 def _throttle():
     global _last_request_time
-    elapsed = asyncio.get_event_loop().time() - _last_request_time
-    if elapsed < _MIN_INTERVAL:
-        asyncio.sleep(_MIN_INTERVAL - elapsed)
+    now = asyncio.get_event_loop().time()
+    elapsed = now - _last_request_time
+    wait_time = max(0, random.uniform(_MIN_INTERVAL, _MAX_INTERVAL) - elapsed)
+    if wait_time > 0:
+        asyncio.sleep(wait_time)
     _last_request_time = asyncio.get_event_loop().time()
 
 
@@ -56,15 +59,26 @@ async def _fetch_with_playwright(url: str) -> tuple[str, Any]:
         return current_url, html
 
 
-def search_hot_products(category: str = "", date_type: str = "day", page: int = 1) -> list[dict[str, Any]]:
-    url = f"{CHANMAMA_BASE_URL}/SPUrank"
-    if category:
-        url = f"{CHANMAMA_BASE_URL}/SPUrank?category={category}"
+def search_hot_products(
+    keyword: str = "",
+    category: str = "",
+    date_type: str = "day",
+    page: int = 1,
+    limit: int = 20
+) -> list[dict[str, Any]]:
+    # Determine URL: if keyword provided use search, else use SPU rank
+    if keyword:
+        url = f"{CHANMAMA_BASE_URL}/search?q={keyword}"
+        logger.info(f"Chanmama: Searching for keyword '{keyword}' at {url}")
+    else:
+        url = f"{CHANMAMA_BASE_URL}/SPUrank"
+        if category:
+            url = f"{CHANMAMA_BASE_URL}/SPUrank?category={category}"
+        logger.info(f"Chanmama: Fetching SPU rank page {url}")
     
-    logger.info(f"Fetching chanmama SPU rank page: {url}")
     try:
         current_url, html = asyncio.run(_fetch_with_playwright(url))
-        logger.info(f"Final URL after redirect: {current_url}")
+        logger.info(f"Chanmama: Final URL after redirect: {current_url}")
         
         if "/register" in current_url or "/login" in current_url:
             logger.warning("Chanmama: Redirected to login/register, cookie may be expired!")
@@ -74,7 +88,7 @@ def search_hot_products(category: str = "", date_type: str = "day", page: int = 
         products = _parse_from_html(html)
         if products:
             logger.info(f"Chanmama: Parsed {len(products)} products from HTML")
-            return products
+            return products[:limit]
         else:
             logger.info("Chanmama: No products found via HTML parse")
             return []

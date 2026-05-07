@@ -62,8 +62,9 @@ class ProductPickerAgent(BaseAgent):
         chanmama_data: list[dict[str, Any]] = []
         chanmama_error = ""
         try:
-            chanmama_data = await asyncio.to_thread(search_hot_products, category="", date_type="day")
-            await self.bus.log(task_id, self.name, "info", f"Chanmama returned {len(chanmama_data)} products")
+            search_keyword = keywords[0] if keywords else ""
+            chanmama_data = await asyncio.to_thread(search_hot_products, keyword=search_keyword, date_type="day")
+            await self.bus.log(task_id, self.name, "info", f"Chanmama returned {len(chanmama_data)} products for keyword '{search_keyword}'")
         except Exception as e:
             chanmama_error = str(e)
             await self.bus.log(task_id, self.name, "warning", f"Chanmama scraping failed: {e}")
