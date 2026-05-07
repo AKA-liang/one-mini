@@ -1,216 +1,150 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import re
+import os
 from typing import Any
 
-from scrapling.fetchers import StealthyFetcher, DynamicFetcher
-
-from app.spiders.cookie_manager import get_chanmama_cookies, has_chanmama_cookies
+from playwright.async_api import async_playwright
+from app.spiders.cookie_manager import get_chanmama_cookie_string, has_chanmama_cookies
 
 logger = logging.getLogger(__name__)
 
 CHANMAMA_BASE_URL = "https://www.chanmama.com"
 
-
-def search_hot_products(
-    category: str = "",
-    date_type: str = "day",
-    page: int = 1,
-) -> list[dict[str, Any]]:
-    strategies = []
-    if has_chanmama_cookies():
-        strategies.append(_fetch_with_cookies)
-    strategies.extend([_fetch_spu_rank, _fetch_with_dynamic])
-
-    for strategy in strategies:
-        try:
-            result = strategy(category=category, date_type=date_type, page=page)
-            if result:
-                logger.info(f"Chanmama: {strategy.__name__} returned {len(result)} products")
-                return result
-        except Exception as e:
-            logger.warning(f"Chanmama: {strategy.__name__} failed: {e}")
-            continue
-
-    logger.info("Chanmama: All scraping strategies failed, returning empty list")
-    return []
+_last_request_time = 0.0
+_MIN_INTERVAL = 3.0
 
 
-def _fetch_with_cookies(category: str = "", date_type: str = "day", page: int = 1) -> list[dict[str, Any]]:
+def _throttle():
+    global _last_request_time
+    elapsed = asyncio.get_event_loop().time() - _last_request_time
+    if elapsed < _MIN_INTERVAL:
+        asyncio.sleep(_MIN_INTERVAL - elapsed)
+    _last_request_time = asyncio.get_event_loop().time()
+
+
+async def _fetch_with_playwright(url: str) -> tuple[str, Any]:
+    async with async_playwright() as p:
+        browser = await p.chromium.launch(channel="msedge", headless=True)
+        
+        # Load cookies from env if available
+        context = await browser.new_context()
+        if has_chanmama_cookies():
+            cookie_str = get_chanmama_cookie_string()
+            cookies = []
+            for part in cookie_str.split("; "):
+                if "=" in part:
+                    name, value = part.split("=", 1)
+                    cookies.append({
+                        "name": name,
+                        "value": value,
+                        "domain": ".chanmama.com",
+                        "path": "/"
+                    })
+            await context.add_cookies(cookies)
+        
+        page = await context.new_page()
+        await page.goto(url, wait_until="networkidle", timeout=30000)
+        
+        html = await page.content()
+        current_url = page.url
+        
+        await browser.close()
+        return current_url, html
+
+
+def search_hot_products(category: str = "", date_type: str = "day", page: int = 1) -> list[dict[str, Any]]:
     url = f"{CHANMAMA_BASE_URL}/SPUrank"
     if category:
         url = f"{CHANMAMA_BASE_URL}/SPUrank?category={category}"
-
-    cookies = get_chanmama_cookies()
-
-    page_data = StealthyFetcher.fetch(
-        url,
-        headless=True,
-        network_idle=True,
-        cookies=cookies,
-        timeout=30000,
-    )
-
-    current_url = page_data.url if hasattr(page_data, "url") else ""
-    if "/register" in current_url or "/login" in current_url:
-        logger.info("Chanmama: Redirected to login/register page even with cookies")
-        return []
-
-    return _parse_product_page(page_data)
-
-
-def _fetch_spu_rank(category: str = "", date_type: str = "day", page: int = 1) -> list[dict[str, Any]]:
-    url = f"{CHANMAMA_BASE_URL}/SPUrank"
-    if category:
-        url = f"{CHANMAMA_BASE_URL}/SPUrank?category={category}"
-
-    page_data = StealthyFetcher.fetch(
-        url, headless=True, network_idle=True, timeout=30000
-    )
-
-    current_url = page_data.url if hasattr(page_data, "url") else ""
-    if "/register" in current_url or "/login" in current_url:
-        logger.info("Chanmama: Redirected to login/register page, skipping")
-        return []
-
-    return _parse_product_page(page_data)
-
-
-def _fetch_with_dynamic(category: str = "", date_type: str = "day", page: int = 1) -> list[dict[str, Any]]:
-    url = f"{CHANMAMA_BASE_URL}/SPUrank"
-    if category:
-        url = f"{CHANMAMA_BASE_URL}/SPUrank?category={category}"
-
-    page_data = DynamicFetcher.fetch(
-        url, headless=True, network_idle=True, timeout=30000
-    )
-
-    current_url = page_data.url if hasattr(page_data, "url") else ""
-    if "/register" in current_url or "/login" in current_url:
-        logger.info("Chanmama: Redirected to login/register page, skipping")
-        return []
-
-    return _parse_product_page(page_data)
-
-
-def _parse_product_page(page_data: Any) -> list[dict[str, Any]]:
-    products: list[dict[str, Any]] = []
-
-    current_url = page_data.url if hasattr(page_data, "url") else ""
-    if "/register" in current_url or "/login" in current_url:
-        return []
-
-    selectors = [
-        "tr", ".rank-item", ".product-item", ".sale-item",
-        ".goods-item", "[class*='product']", "[class*='rank']",
-    ]
-
-    for selector in selectors:
-        rows = page_data.css(selector) if hasattr(page_data, "css") else []
-        if rows and len(rows) > 2:
-            for row in rows[:20]:
-                try:
-                    product = _extract_product_from_element(row)
-                    if product and product.get("title"):
-                        products.append(product)
-                except Exception:
-                    continue
-            if products:
-                break
-
-    if not products:
-        products = _extract_from_page_text(page_data)
-
-    return products
-
-
-def _extract_product_from_element(element: Any) -> dict[str, Any] | None:
-    text = element.text if hasattr(element, "text") else ""
-    if not text or len(text.strip()) < 5:
-        return None
-
-    links = element.css("a::attr(href)") if hasattr(element, "css") else []
-    product_url = ""
-    if links:
-        product_url = links[0] if isinstance(links, list) else str(links)
-
-    price_match = re.search(r"[¥￥]\s*(\d+\.?\d*)", text)
-    price = float(price_match.group(1)) if price_match else None
-
-    return {
-        "title": _clean_text(text[:100]),
-        "price": price,
-        "raw_text": _clean_text(text[:500]),
-        "product_url": product_url,
-    }
-
-
-def _extract_from_page_text(page_data: Any) -> list[dict[str, Any]]:
-    full_text = ""
-    if hasattr(page_data, "css"):
-        body_text = page_data.css("body::text").get()
-        if body_text:
-            full_text = body_text
-
-    if not full_text:
-        return []
-
-    products: list[dict[str, Any]] = []
-    price_matches = re.finditer(r"[¥￥]\s*(\d+\.?\d*)", full_text)
-    for idx, match in enumerate(price_matches):
-        if idx >= 20:
-            break
-        start = max(0, match.start() - 50)
-        end = min(len(full_text), match.end() + 50)
-        context = _clean_text(full_text[start:end])
-        products.append({
-            "title": context[:80],
-            "price": float(match.group(1)),
-            "raw_text": context,
-            "product_url": "",
-        })
-
-    return products
-
-
-def search_product_detail(product_url: str) -> dict[str, Any] | None:
-    if not product_url.startswith("http"):
-        product_url = f"{CHANMAMA_BASE_URL}{product_url}"
-
+    
+    logger.info(f"Fetching chanmama SPU rank page: {url}")
     try:
-        page_data = StealthyFetcher.fetch(
-            product_url, headless=True, network_idle=True, timeout=30000
-        )
-        return _parse_detail_page(page_data)
-    except Exception:
-        return None
+        current_url, html = asyncio.run(_fetch_with_playwright(url))
+        logger.info(f"Final URL after redirect: {current_url}")
+        
+        if "/register" in current_url or "/login" in current_url:
+            logger.warning("Chanmama: Redirected to login/register, cookie may be expired!")
+            return []
+        
+        # Try to extract products from HTML
+        products = _parse_from_html(html)
+        if products:
+            logger.info(f"Chanmama: Parsed {len(products)} products from HTML")
+            return products
+        else:
+            logger.info("Chanmama: No products found via HTML parse")
+            return []
+    except Exception as e:
+        logger.warning(f"Chanmama: Playwright fetch failed: {e}")
+        return []
 
 
-def _parse_detail_page(page_data: Any) -> dict[str, Any] | None:
-    detail: dict[str, Any] = {}
-
-    if hasattr(page_data, "css"):
-        title_el = page_data.css("h1::text").get()
-        if title_el:
-            detail["title"] = title_el.strip()
-
-        price_els = page_data.css(".price::text").getall()
-        if price_els:
-            detail["prices"] = [p.strip() for p in price_els if p.strip()]
-
-    return detail if detail else None
+def _parse_from_html(html: str) -> list[dict[str, Any]]:
+    products: list[dict[str, Any]] = []
+    
+    # Try to find common product elements
+    rows = re.findall(r'<tr[^>]*>(.*?)</tr>', html, re.DOTALL)
+    if len(rows) < 5:
+        rows = re.findall(r'<div[^>]*class="[^"]*rank[^"]*item[^"]*"[^>]*>(.*?)</div>', html, re.DOTALL)
+    if len(rows) < 5:
+        rows = re.findall(r'<div[^>]*class="[^"]*product[^"]*item[^"]*"[^>]*>(.*?)</div>', html, re.DOTALL)
+    
+    if len(rows) > 5:
+        for row in rows[:50]:
+            try:
+                title_match = re.search(r'>([^<>]{5,100})<', row)
+                price_match = re.search(r'[¥￥]\s*([0-9.,]+)', row)
+                
+                if title_match:
+                    title = _clean_text(title_match.group(1))
+                    if title:
+                        product = {"title": title, "raw_text": _clean_text(row[:500])}
+                        if price_match:
+                            product["price"] = float(price_match.group(1).replace(',', ''))
+                        products.append(product)
+            except Exception:
+                continue
+    
+    # Fallback to text extraction
+    if not products:
+        price_matches = list(re.finditer(r'[¥￥]\s*([0-9.,]+)', html))
+        for idx, pm in enumerate(price_matches[:30]):
+            try:
+                price = float(pm.group(1).replace(',', ''))
+                start = max(0, pm.start() - 80)
+                end = min(len(html), pm.end() + 80)
+                context = _clean_text(html[start:end])
+                
+                # Try to extract title
+                title = ""
+                for p in [100, 80, 60]:
+                    if start > 0:
+                        text_before = _clean_text(html[max(0, start - p):start])
+                        if len(text_before) > 10:
+                            title = text_before[-50:].strip()
+                            break
+                if not title:
+                    title = f"Product {idx+1} (Price: {price})"
+                
+                products.append({"title": title, "price": price, "raw_text": context})
+            except Exception:
+                continue
+    
+    return products[:20]
 
 
 def _clean_text(text: str) -> str:
-    text = re.sub(r"\s+", " ", text)
+    text = re.sub(r'\s+', ' ', text)
     return text.strip()
 
 
 def search_trending_keywords() -> list[str]:
     defaults = [
         "美妆护肤", "家居日用", "食品饮料", "服饰穿搭",
-        "母婴亲子", "数码家电", "运动户外", "珠宝配饰",
+        "母婴亲子", "数码家电", "运动户外", "珠宝配饰"
     ]
     return defaults
