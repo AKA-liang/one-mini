@@ -2,51 +2,71 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
+import os
 import re
 from typing import Any
 
 from app.agents.base_agent import BaseAgent
+from app.config import settings
 from app.llm.base import LLMMessage
 from app.llm.router import chat
 from app.message_bus import MessageBus
-from app.spiders.alibaba1688 import search_products as search_1688_products
+from app.export.excel import export_task_data
 
-FINANCE_ANALYST_PROMPT = """你是一位资深的电商财务专家，负责成本核算、利润分析和税务筹划。
-你需要基于采购成本、物流成本、平台佣金、广告投放费用、退货率等数据，进行精细化的ROI预测。
+logger = logging.getLogger(__name__)
 
-分析时请严格遵守以下常识规则：
-- 平台佣金一般在5%-15%之间
-- 物流成本不会低于2元/单
-- 退货率一般不超过30%
-- 利润率不可能超过90%
-- 毛利率 = (售价-采购成本)/售价
+FINANCE_ANALYST_PROMPT = """你是一位资深的电商财务专家，负责成本核算和ROI预测。
 
-你会收到1688平台的真实采购价格数据，请基于这些数据进行精确的ROI计算。
+⚠️ 输出格式：只输出纯JSON，不要用```json```包裹，不要加任何解释文字。
 
-请以JSON格式输出分析报告：
+你会收到选品Agent的输出，每款商品已标注：
+- price: 到手价（真实数据）
+- commission_rate: 佣金率（真实数据，来自巨量百应选品广场）
+- monthly_sales: 月销量
+
+你必须严格使用 price 和 commission_rate 进行财务计算，不要估算。
+
+计算规则：
+- revenue = price (售价)
+- purchase_cost = 不需要（选品广场给的是到手价，已包含所有成本）
+- platform_commission = price × commission_rate
+- logistics_cost ≥ 2元/单
+- ad_cost_per_order = price × 5%~10%
+- return_rate ≤ 30%（根据品类估算）
+- net_profit = price × commission_rate - logistics_cost - ad_cost_per_order
+  （即：佣金收入 - 物流 - 广告 = 净利）
+- profit_margin = net_profit / price
+- ROI = net_profit / ad_cost_per_order
+
+JSON格式:
 {
   "products": [
     {
       "name": "商品名称",
-      "purchase_cost": 采购成本(元),
-      "selling_price": 建议售价(元),
-      "platform_commission_rate": 平台佣金率,
-      "platform_commission": 平台佣金(元),
+      "selling_price": 到手价(元),
+      "commission_rate": 佣金率,
+      "commission_income": 佣金收入(元),
       "logistics_cost": 物流成本(元),
-      "ad_cost_per_order": 单均广告成本(元),
-      "return_rate": 预估退货率,
-      "return_cost": 退货成本(元),
-      "net_profit_per_order": 单均净利润(元),
+      "ad_cost_per_order": 广告成本(元),
+      "return_rate": 退货率,
+      "net_profit_per_order": 单笔净利润(元),
       "profit_margin": 利润率,
-      "roi": 预期ROI,
-      "break_even_orders": 回本所需订单数,
-      "recommendation": "推荐/观望/不推荐",
+      "roi": ROI,
+      "recommendation": "强烈推荐/推荐/观望/不推荐",
       "risk_notes": "风险提示"
     }
   ],
   "overall_assessment": "整体评估",
   "investment_suggestion": "投资建议"
 }"""
+
+
+async def fetch_own_platform_data(product_names: list[str]) -> dict[str, Any] | None:
+    if not settings.own_platform_db_url and not settings.own_platform_api_key:
+        return None
+    logger.info(f"OwnPlatform: fetching data for {len(product_names)} products (stub)")
+    return None
 
 
 class FinanceAnalystAgent(BaseAgent):
@@ -61,99 +81,164 @@ class FinanceAnalystAgent(BaseAgent):
 
         await self.bus.log(task_id, self.name, "info", f"Starting finance analysis for task {task_id}")
 
-        alibaba_data: list[dict[str, Any]] = []
-        alibaba_error = ""
+        # Extract products with wholesale prices from product_picker output
+        products_with_prices = self._extract_products_with_prices(product_data)
+        own_data = await self._fetch_own_platform(task_id, product_names=[])
 
-        product_names: list[str] = []
-        if isinstance(product_data, dict):
-            products_list = product_data.get("products", [])
-            for p in products_list:
-                if isinstance(p, dict) and p.get("name"):
-                    product_names.append(str(p["name"]))
-        elif isinstance(product_data, str):
-            try:
-                parsed = json.loads(product_data)
-                for p in parsed.get("products", []):
-                    if isinstance(p, dict) and p.get("name"):
-                        product_names.append(str(p["name"]))
-            except (json.JSONDecodeError, AttributeError):
-                pass
+        if not products_with_prices:
+            error_msg = "No products with wholesale prices found — product_picker output is empty or missing best_supply_price"
+            await self.bus.log(task_id, self.name, "error", error_msg)
+            return {
+                "task_id": task_id,
+                "agent": self.name,
+                "error": error_msg,
+                "data_source": "none",
+            }
 
-        if product_names:
-            try:
-                search_keyword = product_names[0].split()[0] if product_names[0] else "热销"
-                alibaba_data = await asyncio.to_thread(search_1688_products, keyword=search_keyword, page=1)
-                await self.bus.log(task_id, self.name, "info", f"1688 returned {len(alibaba_data)} products")
-            except Exception as e:
-                alibaba_error = str(e)
-                await self.bus.log(task_id, self.name, "warning", f"1688 scraping failed: {e}")
+        await self.bus.log(task_id, self.name, "info",
+                           f"Got {len(products_with_prices)} products with wholesale prices from ProductPicker")
 
-        context_parts: list[str] = []
-        context_parts.append("请对以下选品结果进行财务审核和ROI分析：")
-        context_parts.append(f"\n选品数据：\n{product_data if isinstance(product_data, str) else json.dumps(product_data, ensure_ascii=False, indent=2)}")
+        context = self._build_context(products_with_prices, own_data)
 
-        if alibaba_data:
-            real_data = []
-            for item in alibaba_data:
-                entry = {
-                    "product_name": item.get("product_name", ""),
-                    "price_min": item.get("price_min"),
-                    "price_max": item.get("price_max"),
-                    "moq": item.get("moq"),
-                    "shop_name": item.get("shop_name", ""),
-                }
-                if entry["product_name"]:
-                    real_data.append(entry)
-            if real_data:
-                context_parts.append(
-                    f"\n以下是从1688平台抓取的真实采购价格数据：\n{json.dumps(real_data, ensure_ascii=False, indent=2)}"
-                )
-        elif alibaba_error:
-            context_parts.append(f"\n[注意] 1688数据抓取失败：{alibaba_error}，请基于你的专业知识估算采购成本。")
-
-        context_parts.append("\n请输出完整的财务分析报告，注意数值必须符合商业常识。")
-
-        user_content = "\n".join(context_parts)
-
-        messages = [
+        response = await chat("finance_review", [
             LLMMessage(role="system", content=FINANCE_ANALYST_PROMPT),
-            LLMMessage(role="user", content=user_content),
-        ]
+            LLMMessage(role="user", content=context),
+        ], temperature=0.3)
 
-        response = await chat("finance_review", messages, temperature=0.3)
-
-        try:
-            result = json.loads(response.content)
-        except json.JSONDecodeError:
-            raw = response.content
-            json_blocks = re.findall(r"```(?:json)?\s*([\s\S]*?)```", raw)
-            json_match = json_blocks[0].strip() if json_blocks else ""
-            if not json_match:
-                brace_match = re.search(r"\{[\s\S]*\}", raw)
-                if brace_match:
-                    json_match = brace_match.group(0)
-            if json_match:
-                try:
-                    result = json.loads(json_match)
-                except json.JSONDecodeError:
-                    result = {"raw_response": raw, "parse_error": "Could not extract JSON from response"}
-            else:
-                result = {"raw_response": raw, "parse_error": "Response is not valid JSON"}
+        result = self._parse_response(response.content)
 
         result["task_id"] = task_id
         result["agent"] = self.name
         result["model_used"] = response.model
         if response.usage:
             result["token_usage"] = response.usage
-        if alibaba_data:
-            result["data_source"] = "1688_real"
-        elif alibaba_error:
-            result["data_source"] = "llm_knowledge_fallback"
-            result["alibaba_error"] = alibaba_error
+
+        data_sources = ["product_picker"]
+        if own_data:
+            data_sources.append("own_platform")
+        result["data_source"] = ", ".join(data_sources)
+
+        result["wholesale_status"] = self._format_price_summary(products_with_prices)
+
+        # Export Excel
+        try:
+            filepath = export_task_data(
+                task_id=task_id, keywords="",
+                budget=None, category=None,
+                finance_data=result.get("products"),
+                agent="finance_analyst",
+            )
+            result["excel_file"] = os.path.basename(filepath)
+        except Exception as e:
+            await self.bus.log(task_id, self.name, "warning", f"Excel export failed: {e}")
 
         result = self._sanity_check(result)
-
         return result
+
+    async def _fetch_own_platform(self, task_id: str, product_names: list[str]) -> dict[str, Any] | None:
+        if not settings.own_platform_db_url and not settings.own_platform_api_key:
+            return None
+        try:
+            data = await fetch_own_platform_data(product_names)
+            if data:
+                await self.bus.log(task_id, self.name, "info", "Own platform data retrieved")
+            else:
+                await self.bus.log(task_id, self.name, "info", "Own platform: no matching data found")
+            return data
+        except Exception as e:
+            await self.bus.log(task_id, self.name, "warning", f"Own platform fetch failed: {e}")
+            return None
+
+    def _extract_products_with_prices(self, product_data: Any) -> list[dict[str, Any]]:
+        products: list[dict[str, Any]] = []
+        raw_products: list[dict] = []
+
+        if isinstance(product_data, dict):
+            raw_products = product_data.get("products", [])
+        elif isinstance(product_data, str):
+            try:
+                parsed = json.loads(product_data)
+                raw_products = parsed.get("products", [])
+            except (json.JSONDecodeError, AttributeError):
+                pass
+
+        for p in raw_products:
+            if not isinstance(p, dict):
+                continue
+            name = p.get("name", "")
+            price = p.get("price", p.get("best_supply_price"))  # backward compat
+            comm = p.get("commission_rate")
+
+            if not name:
+                continue
+            if price is None:
+                continue
+
+            products.append({
+                "name": str(name)[:200],
+                "price": float(price),
+                "commission_rate": float(comm) if comm else 0,
+                "monthly_sales": p.get("monthly_sales", p.get("sales")),
+            })
+
+        return products
+
+    def _format_price_summary(self, products: list[dict]) -> str:
+        parts = []
+        for p in products[:5]:
+            name = p.get("name", "")[:20]
+            pr = p.get("price", 0)
+            cr = p.get("commission_rate", 0)
+            parts.append(f"{name}: ¥{pr}/{cr:.0%}")
+        return f"佣金数据(共{len(products)}款): " + " | ".join(parts)
+
+    def _build_context(
+        self,
+        products_with_prices: list[dict[str, Any]],
+        own_data: dict[str, Any] | None,
+    ) -> str:
+        parts: list[str] = []
+        parts.append("请对以下选品结果进行财务审核和ROI分析：")
+
+        real_data = []
+        for item in products_with_prices:
+            entry = {
+                "name": item.get("name", ""),
+                "price": item.get("price", 0),
+                "commission_rate": item.get("commission_rate", 0),
+                "monthly_sales": item.get("monthly_sales"),
+            }
+            if entry["name"]:
+                real_data.append(entry)
+
+        parts.append(f"\n选品数据（含真实到手价+佣金率）：\n{json.dumps(real_data, ensure_ascii=False, indent=2)}")
+        parts.append("\n说明：price=到手售价, commission_rate=真实佣金率（来自巨量百应选品广场），"
+                     "佣金收入 = price × commission_rate，净利润 = 佣金收入 - 物流 - 广告。")
+
+        if own_data:
+            parts.append(f"\n本平台历史数据：\n{json.dumps(own_data, ensure_ascii=False, indent=2)}")
+
+        parts.append("\n请基于以上真实数据输出完整的财务分析报告。")
+        return "\n".join(parts)
+
+    def _parse_response(self, content: str) -> dict[str, Any]:
+        try:
+            return json.loads(content)
+        except json.JSONDecodeError:
+            pass
+        blocks = re.findall(r"```(?:json)?\s*([\s\S]*?)```", content)
+        for block in blocks:
+            try:
+                return json.loads(block.strip())
+            except json.JSONDecodeError:
+                continue
+        brace = re.search(r"\{[\s\S]*\}", content)
+        if brace:
+            try:
+                return json.loads(brace.group(0))
+            except json.JSONDecodeError:
+                pass
+        return {"raw_response": content[:2000]}
 
     def _sanity_check(self, result: dict[str, Any]) -> dict[str, Any]:
         products = result.get("products", [])

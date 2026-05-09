@@ -48,6 +48,21 @@ data/
 # Playwright
 .playwright/
 
+# Logs
+logs/
+*.log
+
+# Lockfiles
+uv.lock
+
 # Build output
 frontend/dist/
 backend/target/
+
+# Temp scripts
+start_ai_utf8.bat
+
+# Test output
+spider_test/output/
+spider_test/*output*
+screenshot*

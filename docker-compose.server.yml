@@ -1,0 +1,102 @@
+# Server deployment: no Edge browser → Chanmama(cookie) + Yiwugo only
+# 1688/Buyin will auto-skip when persistent_context unavailable
+services:
+  mysql:
+    image: mysql:8.0
+    container_name: one-mini-mysql
+    environment:
+      MYSQL_ROOT_PASSWORD: ${DB_PASSWORD:-one_mini_2026}
+      MYSQL_DATABASE: one_mini
+      MYSQL_CHARSET: utf8mb4
+      MYSQL_COLLATION: utf8mb4_unicode_ci
+    ports:
+      - "3307:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+    command: --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - one-mini
+
+  redis:
+    image: redis:7-alpine
+    container_name: one-mini-redis
+    ports:
+      - "6380:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - one-mini
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: one-mini-backend
+    environment:
+      DB_URL: jdbc:mysql://mysql:3306/one_mini?useUnicode=true&characterEncoding=utf8&useSSL=false&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true
+      DB_USER: root
+      DB_PASSWORD: ${DB_PASSWORD:-one_mini_2026}
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      FILE_UPLOAD_PATH: /app/uploads
+    ports:
+      - "8080:8080"
+    volumes:
+      - uploads_data:/app/uploads
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - one-mini
+
+  ai-engine:
+    build:
+      context: ./ai-engine
+      dockerfile: Dockerfile.server
+    container_name: one-mini-ai-engine
+    env_file:
+      - ./ai-engine/.env
+    environment:
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      APP_HOST: 0.0.0.0
+      APP_PORT: 8001
+    depends_on:
+      redis:
+        condition: service_healthy
+    networks:
+      - one-mini
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: one-mini-frontend
+    ports:
+      - "80:80"
+    depends_on:
+      - backend
+      - ai-engine
+    networks:
+      - one-mini
+
+volumes:
+  mysql_data:
+  redis_data:
+  uploads_data:
+
+networks:
+  one-mini:
+    driver: bridge

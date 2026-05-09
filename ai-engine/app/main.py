@@ -6,12 +6,29 @@ import uuid
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
+from fastapi.responses import JSONResponse
+from starlette.middleware.base import BaseHTTPMiddleware
 
 from app.agents.product_picker import ProductPickerAgent
 from app.agents.finance_analyst import FinanceAnalystAgent
 from app.message_bus import MessageBus, get_message_bus
+from app.logger import init_logging, get_logger
+from app.spiders.browser import get_browser
+
+
+class CharsetMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request, call_next):
+        response = await call_next(request)
+        if response.headers.get("content-type", "").startswith("application/json"):
+            response.headers["content-type"] = "application/json; charset=utf-8"
+        return response
+
 
 app = FastAPI(title="One Mini AI Engine", version="0.1.0")
+app.add_middleware(CharsetMiddleware)
+
+init_logging()
+logger = get_logger("main")
 
 bus: MessageBus | None = None
 agents: dict[str, object] = {}
@@ -25,10 +42,23 @@ async def lifespan(app: FastAPI):
         "product_picker": ProductPickerAgent(bus),
         "finance_analyst": FinanceAnalystAgent(bus),
     }
+    logger.info("AI Engine started", extra={"agents": list(agents.keys())})
+
+    # Start persistent Edge browser
+    browser = None
+    try:
+        browser = await get_browser()
+        logger.info("Edge browser connected via CDP")
+    except Exception as e:
+        logger.warning(f"Browser: CDP Edge not available ({e}) — persistent_context fallback will be used")
+
     asyncio.create_task(_consume_tasks())
     yield
     if bus:
         await bus.close()
+        logger.info("AI Engine shutdown")
+    if browser:
+        await browser.shutdown()
 
 
 app.router.lifespan_context = lifespan
@@ -37,6 +67,8 @@ app.router.lifespan_context = lifespan
 async def _consume_tasks():
     if not bus:
         return
+    logger.info("Task consumer started")
+    processed = 0
     while True:
         try:
             messages = await bus.read_task(count=1, block=5000)
@@ -51,14 +83,11 @@ async def _consume_tasks():
                     except json.JSONDecodeError:
                         payload = {"raw": payload}
 
+                logger.info(f"Processing task {task_id} → {to_agent}/{action}")
                 agent = agents.get(to_agent)
                 if agent is None:
-                    await bus.log(
-                        task_id,
-                        "router",
-                        "error",
-                        f"Unknown agent: {to_agent}",
-                    )
+                    await bus.log(task_id, "router", "error", f"Unknown agent: {to_agent}")
+                    logger.warning(f"Unknown agent: {to_agent} for task {task_id}")
                     continue
 
                 await bus.log(task_id, "router", "info", f"Routing task {task_id} to {to_agent}")
@@ -67,6 +96,8 @@ async def _consume_tasks():
                 if to_agent == "product_picker":
                     try:
                         result = await agent.run(task_id, payload)
+                        processed += 1
+                        logger.info(f"ProductPicker completed task {task_id} (#{processed})")
                         # Chain to finance_analyst
                         finance_agent = agents.get("finance_analyst")
                         if finance_agent:
@@ -82,29 +113,32 @@ async def _consume_tasks():
                                 finance_payload,
                                 from_agent="product_picker",
                             )
-                            await bus.log(
-                                task_id,
-                                "router",
-                                "info",
-                                f"Chained to finance_analyst with task {finance_task_id}",
-                            )
+                            await bus.log(task_id, "router", "info",
+                                          f"Chained to finance_analyst with task {finance_task_id}")
+                            logger.info(f"Chained finance_analyst for task {task_id}")
                     except Exception as e:
                         await bus.log(task_id, "router", "error", f"Agent failed: {e}")
+                        logger.error(f"ProductPicker failed for task {task_id}: {e}", exc_info=True)
 
                 elif to_agent == "finance_analyst":
                     try:
                         await agent.run(task_id, payload)
+                        processed += 1
+                        logger.info(f"FinanceAnalyst completed task {task_id} (#{processed})")
                     except Exception as e:
                         await bus.log(task_id, "router", "error", f"Agent failed: {e}")
+                        logger.error(f"FinanceAnalyst failed for task {task_id}: {e}", exc_info=True)
 
                 else:
                     try:
                         await agent.run(task_id, payload)
+                        logger.info(f"Agent {to_agent} completed task {task_id}")
                     except Exception as e:
                         await bus.log(task_id, "router", "error", f"Agent failed: {e}")
+                        logger.error(f"Agent {to_agent} failed for task {task_id}: {e}", exc_info=True)
 
         except Exception as e:
-            print(f"Error consuming tasks: {e}")
+            logger.error(f"Consumer loop error: {e}", exc_info=True)
             await asyncio.sleep(1)
 
 

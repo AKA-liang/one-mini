@@ -8,6 +8,9 @@ from typing import Any
 import redis.asyncio as aioredis
 
 from app.config import settings
+from app.logger import get_logger
+
+logger = get_logger("redis")
 
 
 class MessageBus:
@@ -27,10 +30,13 @@ class MessageBus:
             db=settings.redis_db,
             decode_responses=True,
         )
+        await self.redis.ping()
+        logger.info(f"Redis connected {settings.redis_host}:{settings.redis_port}")
 
     async def close(self):
         if self.redis:
             await self.redis.close()
+            logger.info("Redis disconnected")
 
     async def send_task(
         self,
@@ -73,7 +79,9 @@ class MessageBus:
         return resp
 
     async def read_task(self, count: int = 1, block: int = 5000) -> list[dict[str, Any]]:
-        streams = {self.TASK_STREAM: "$"}
+        if not hasattr(self, '_task_cursor'):
+            self._task_cursor = "0"
+        streams = {self.TASK_STREAM: self._task_cursor}
         messages = await self.redis.xread(streams, count=count, block=block)
         result = []
         for stream_name, msgs in messages:
@@ -81,10 +89,13 @@ class MessageBus:
                 parsed = _parse_message(data)
                 parsed["_redis_id"] = msg_id
                 result.append(parsed)
+                self._task_cursor = msg_id
         return result
 
     async def read_result(self, count: int = 1, block: int = 5000) -> list[dict[str, Any]]:
-        streams = {self.RESULT_STREAM: "$"}
+        if not hasattr(self, '_result_cursor'):
+            self._result_cursor = "0"
+        streams = {self.RESULT_STREAM: self._result_cursor}
         messages = await self.redis.xread(streams, count=count, block=block)
         result = []
         for stream_name, msgs in messages:
@@ -92,6 +103,7 @@ class MessageBus:
                 parsed = _parse_message(data)
                 parsed["_redis_id"] = msg_id
                 result.append(parsed)
+                self._result_cursor = msg_id
         return result
 
     async def log(

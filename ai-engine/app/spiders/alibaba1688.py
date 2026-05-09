@@ -1,113 +1,112 @@
+"""
+Alibaba 1688 spider — wholesale supply data source.
+Subprocess mode: python app/spiders/alibaba1688.py --keyword "xxx" --limit 20
+Outputs JSON to stdout.
+"""
 from __future__ import annotations
 
+import os as _os, sys as _sys
+if __name__ == "__main__":
+    _os.chdir(_os.path.dirname(_os.path.dirname(_os.path.dirname(_os.path.abspath(__file__)))))
+    _sys.path.insert(0, _os.getcwd())
+
+import argparse
 import json
 import logging
+import os
 import re
+import sys
+import time
 from typing import Any
+from urllib.parse import quote
 
-from scrapling.fetchers import StealthyFetcher, DynamicFetcher, Fetcher
-
-from app.spiders.cookie_manager import (
-    get_alibaba_1688_cookies,
-    get_alibaba_1688_cookie_string,
-    has_alibaba_cookies,
-)
+from app.config import settings
 
 logger = logging.getLogger(__name__)
 
 ALIBABA_1688_BASE_URL = "https://s.1688.com"
 
+_CAPTCHA_DETECT_JS = """
+() => {
+    const body = document.body.innerText || '';
+    const captchaKeywords = ['验证码', '滑动验证', '请验证', '拖动滑块'];
+    const hasKeyword = captchaKeywords.some(k => body.includes(k));
+    const el = document.querySelector('.nc-lang-cnt, #nc_1_n1z, [id*="nocaptcha"], .captcha, .slider, .verify');
+    return hasKeyword || (el !== null);
+}
+"""
 
-def search_products(
-    keyword: str,
-    page: int = 1,
-    sort: str = "",
-) -> list[dict[str, Any]]:
-    strategies = []
-    if has_alibaba_cookies():
-        strategies.append(lambda: _fetch_with_cookies(keyword, page, sort))
-    strategies.extend([
-        lambda: _fetch_with_stealthy(keyword, page, sort),
-        lambda: _fetch_with_dynamic(keyword, page, sort),
-        lambda: _fetch_with_http(keyword, page, sort),
-    ])
+_CONTENT_READY_JS = """
+() => document.querySelectorAll('.search-offer-item, [class*="search-offer-item"]').length
+"""
 
-    for strategy in strategies:
+_CAPTCHA_WARNING = """
+╔══════════════════════════════════════════════════╗
+║  ⚠️  1688 检测到滑动验证                         ║
+║  请在打开的 Edge 浏览器窗口中手动完成验证         ║
+║  完成后商品数据将自动提取，最多等待 120 秒...     ║
+╚══════════════════════════════════════════════════╝
+"""
+
+_CAPTCHA_TIMEOUT_MSG = """
+⚠️  1688 验证超时 (120s)，本次获取失败。
+    下次选品时请及时完成验证。
+"""
+
+
+def _detect_captcha(page) -> bool:
+    try:
+        url = page.url
+        if "x5sec" in url.lower():
+            return True
+        result = page.evaluate(_CAPTCHA_DETECT_JS)
+        return bool(result)
+    except Exception:
+        return False
+
+
+def _wait_for_user_verification(page, timeout: int = 120) -> bool:
+    print(_CAPTCHA_WARNING, file=sys.stderr, flush=True)
+    logger.warning("1688: Captcha detected, waiting for manual verification (max %ds)...", timeout)
+
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        time.sleep(3)
         try:
-            result = strategy()
-            if result:
-                logger.info(f"1688: strategy returned {len(result)} products for '{keyword}'")
-                return result
-        except Exception as e:
-            logger.warning(f"1688: strategy failed: {e}")
-            continue
+            has_captcha = page.evaluate(_CAPTCHA_DETECT_JS)
+            item_count = page.evaluate(_CONTENT_READY_JS)
+            if not has_captcha and item_count > 0:
+                logger.info("1688: Verification passed! Found %d offer items on page.", item_count)
+                print(f"[16:08] ✅ 验证通过，已加载 {item_count} 个商品", file=sys.stderr, flush=True)
+                return True
+        except Exception:
+            pass
 
-    logger.info(f"1688: All strategies failed for '{keyword}', using mock data")
-    return _generate_mock_results(keyword)
-
-
-def _fetch_with_cookies(keyword: str, page: int = 1, sort: str = "") -> list[dict[str, Any]]:
-    url = _build_search_url(keyword, page, sort)
-    cookies = get_alibaba_1688_cookies()
-
-    page_data = StealthyFetcher.fetch(
-        url,
-        headless=True,
-        network_idle=True,
-        cookies=cookies,
-        timeout=30000,
-    )
-
-    current_url = page_data.url if hasattr(page_data, "url") else ""
-    if "login" in current_url.lower():
-        logger.info("1688: Still redirected to login after cookie injection")
-        return []
-
-    return _parse_search_page(page_data)
+    logger.warning("1688: Verification timeout after %ds", timeout)
+    print(_CAPTCHA_TIMEOUT_MSG, file=sys.stderr, flush=True)
+    return False
 
 
-def _fetch_with_stealthy(keyword: str, page: int = 1, sort: str = "") -> list[dict[str, Any]]:
-    url = _build_search_url(keyword, page, sort)
-    page_data = StealthyFetcher.fetch(
-        url, headless=True, network_idle=True, timeout=30000
-    )
-
-    current_url = page_data.url if hasattr(page_data, "url") else ""
-    if "login" in current_url.lower() or "register" in current_url.lower():
-        logger.info("1688: Redirected to login page, skipping")
-        return []
-
-    return _parse_search_page(page_data)
-
-
-def _fetch_with_dynamic(keyword: str, page: int = 1, sort: str = "") -> list[dict[str, Any]]:
-    url = _build_search_url(keyword, page, sort)
-    page_data = DynamicFetcher.fetch(
-        url, headless=True, network_idle=True, timeout=30000
-    )
-
-    current_url = page_data.url if hasattr(page_data, "url") else ""
-    if "login" in current_url.lower() or "register" in current_url.lower():
-        logger.info("1688: Redirected to login page, skipping")
-        return []
-
-    return _parse_search_page(page_data)
-
-
-def _fetch_with_http(keyword: str, page: int = 1, sort: str = "") -> list[dict[str, Any]]:
-    url = _build_search_url(keyword, page, sort)
-    page_data = Fetcher.get(url, stealthy_headers=True)
-
-    current_url = page_data.url if hasattr(page_data, "url") else ""
-    if "login" in current_url.lower() or "register" in current_url.lower():
-        logger.info("1688: Redirected to login page (HTTP), skipping")
-        return []
-
-    return _try_extract_from_js_data(page_data)
+def _delete_lock_files():
+    for name in [os.path.join(settings.edge_profile_dir, "LOCK"),
+                 os.path.join(settings.edge_profile_dir, "SingletonLock")]:
+        fp = os.path.join(settings.edge_user_data, name)
+        try:
+            if os.path.isdir(fp):
+                import shutil
+                shutil.rmtree(fp, ignore_errors=True)
+            elif os.path.exists(fp):
+                os.remove(fp)
+        except Exception:
+            pass
 
 
 def _build_search_url(keyword: str, page: int = 1, sort: str = "") -> str:
-    params = f"keywords={keyword}"
+    try:
+        gbk_keyword = quote(keyword.encode("gbk", errors="replace"))
+    except Exception:
+        gbk_keyword = quote(keyword)
+    params = f"keywords={gbk_keyword}"
     if page > 1:
         params += f"&beginPage={page}"
     if sort:
@@ -115,192 +114,206 @@ def _build_search_url(keyword: str, page: int = 1, sort: str = "") -> str:
     return f"{ALIBABA_1688_BASE_URL}/selloffer/offer_search.htm?{params}"
 
 
-def _parse_search_page(page_data: Any) -> list[dict[str, Any]]:
-    current_url = page_data.url if hasattr(page_data, "url") else ""
-    if "login" in current_url.lower() or "register" in current_url.lower():
-        return []
-
-    js_products = _try_extract_from_js_data(page_data)
-    if js_products:
-        return js_products
-
-    products: list[dict[str, Any]] = []
-
-    offer_items = (
-        page_data.css(".offer-item")
-        or page_data.css(".sw-offer-item")
-        or page_data.css("[class*='offer-card']")
-        or page_data.css("[class*='offer-item']")
-    )
-
-    if not offer_items:
-        offer_items = page_data.find_all(
-            "div", class_=re.compile(r"offer|item|product|card", re.I)
-        )
-
-    for item in offer_items[:20]:
-        try:
-            product = _extract_product_from_element(item)
-            if product and product.get("product_name"):
-                products.append(product)
-        except Exception:
-            continue
-
-    return products
-
-
-def _try_extract_from_js_data(page_data: Any) -> list[dict[str, Any]]:
-    products: list[dict[str, Any]] = []
-
-    if not hasattr(page_data, "css"):
-        return products
-
-    scripts = page_data.css("script::text").getall()
-    all_script = " ".join(scripts)
-
-    offer_match = re.search(
-        r"offerresultData\s*=\s*({.*?})(?:\s*;|\s*window)",
-        all_script, re.DOTALL,
-    )
-    if not offer_match:
-        offer_match = re.search(
-            r"window\.data\s*=\s*({.*?})(?:\s*;|\s*</)",
-            all_script, re.DOTALL,
-        )
-
-    if offer_match:
-        try:
-            raw = offer_match.group(1)
-            data = json.loads(raw)
-            offer_list = data.get("offerList", []) if isinstance(data, dict) else []
-            for item in offer_list[:20]:
-                product: dict[str, Any] = {
-                    "product_name": str(item.get("subject", item.get("title", "")))[:200],
-                    "source": "1688",
-                }
-
-                price_info = item.get("price", "")
-                if isinstance(price_info, str):
-                    price_range = _parse_price_range(price_info)
-                    if price_range:
-                        product.update(price_range)
-                elif isinstance(price_info, dict):
-                    product["price_min"] = float(price_info.get("min", price_info.get("begin", 0)))
-                    product["price_max"] = float(price_info.get("max", price_info.get("end", 0)))
-
-                moq = item.get("minOrderQuantity", item.get("moq", 0))
-                product["moq"] = int(moq) if moq else None
-
-                product["shop_name"] = str(item.get("company", item.get("shopName", "")))
-
-                product_url = item.get("offerLink", item.get("url", ""))
-                if product_url:
-                    if str(product_url).startswith("//"):
-                        product_url = f"https:{product_url}"
-                    product["product_url"] = str(product_url)
-
-                if product.get("product_name"):
-                    products.append(product)
-        except (json.JSONDecodeError, Exception):
-            pass
-
-    return products
-
-
-def _extract_product_from_element(element: Any) -> dict[str, Any] | None:
-    product: dict[str, Any] = {}
-
-    name = ""
-    if hasattr(element, "css"):
-        name_els = element.css(".title::text,.offer-title::text,.subject::text,a[class*='title']::text")
-        if name_els:
-            first = name_els[0] if isinstance(name_els, list) else name_els
-            name = str(first).strip() if first else ""
-    if not name and hasattr(element, "css"):
-        name = str(element.css("a::text").get() or "").strip()
-
-    if not name:
-        return None
-
-    product["product_name"] = name[:200]
-
-    if hasattr(element, "css"):
-        price_els = element.css(".price::text,.offer-price::text,[class*='price']::text")
-        if price_els:
-            price_text = str(price_els[0]).strip() if isinstance(price_els, list) else str(price_els).strip()
-            price_range = _parse_price_range(price_text)
-            if price_range:
-                product.update(price_range)
-            else:
-                price_match = re.search(r"[\d.]+", price_text)
-                if price_match:
-                    product["price_min"] = float(price_match.group())
-                    product["price_max"] = float(price_match.group())
-
-    if hasattr(element, "css"):
-        moq_els = element.css(".moq::text,[class*='min-order']::text,[class*='moq']::text")
-        if moq_els:
-            moq_text = str(moq_els[0]).strip() if isinstance(moq_els, list) else str(moq_els).strip()
-            moq_match = re.search(r"(\d+)", moq_text)
-            product["moq"] = int(moq_match.group(1)) if moq_match else None
-
-    if hasattr(element, "css"):
-        shop_els = element.css(".shop-name::text,[class*='shop']::text,[class*='store']::text")
-        if shop_els:
-            product["shop_name"] = str(shop_els[0]).strip() if isinstance(shop_els, list) else str(shop_els).strip()
-
-    if hasattr(element, "css"):
-        link_els = element.css("a::attr(href)")
-        if link_els:
-            link = str(link_els[0]) if isinstance(link_els, list) else str(link_els)
-            if link and not link.startswith("javascript"):
-                if link.startswith("//"):
-                    link = f"https:{link}"
-                elif link.startswith("/"):
-                    link = f"https://detail.1688.com{link}"
-                product["product_url"] = link
-
-    product["source"] = "1688"
-    return product
-
-
-def _parse_price_range(price_str: str) -> dict[str, float] | None:
-    prices = re.findall(r"[\d.]+", price_str)
-    if len(prices) >= 2:
-        return {"price_min": float(prices[0]), "price_max": float(prices[-1])}
-    elif len(prices) == 1:
-        p = float(prices[0])
-        return {"price_min": p, "price_max": p}
+def _parse_price_text(text: str) -> tuple[float, float] | None:
+    numbers = re.findall(r"[\d.]+", text)
+    if len(numbers) >= 2:
+        prices = [float(n) for n in numbers]
+        return min(prices), max(prices)
+    elif len(numbers) == 1:
+        p = float(numbers[0])
+        return p, p
     return None
 
 
-def _generate_mock_results(keyword: str) -> list[dict[str, Any]]:
-    import random
+_PAGE_EXTRACT_JS = """
+() => {
+    const items = document.querySelectorAll('.search-offer-item, [class*="search-offer-item"]');
+    const results = [];
+    for (const el of items) {
+        if (results.length >= 20) break;
 
-    mock_products: list[dict[str, Any]] = []
-    categories = {
-        "保温杯": {"base_price": 15, "moq": 50},
-        "手机壳": {"base_price": 3, "moq": 100},
-        "瑜伽裤": {"base_price": 25, "moq": 30},
-        "面膜": {"base_price": 5, "moq": 200},
-        "蓝牙耳机": {"base_price": 30, "moq": 20},
+        // Title
+        const titleEl = el.querySelector('[class*="title"], [class*="subject"], .offer-title, .offer_subject, h3');
+        const title = titleEl ? titleEl.textContent.trim() : '';
+
+        // Price
+        const priceEl = el.querySelector('[class*="price"], .price, .offer-price');
+        const priceText = priceEl ? priceEl.textContent.trim() : '';
+
+        // Shop
+        const shopEl = el.querySelector('[class*="company"], [class*="supplier"], [class*="shop"], [class*="seller"]');
+        const shop = shopEl ? shopEl.textContent.replace('旺旺在线','').trim() : '';
+
+        // Product detail link (not similar search)
+        let detailLink = '';
+        const links = el.querySelectorAll('a[href*="detail.1688.com"]');
+        if (links.length > 0) {
+            detailLink = links[links.length - 1].href;
+        } else {
+            const mainLink = el.querySelector('a[href*="offer"]');
+            if (mainLink) detailLink = mainLink.href;
+        }
+
+        // Image
+        const imgEl = el.querySelector('img[src*="cdn."], img[src*="img."], img');
+        const image = imgEl ? (imgEl.src || imgEl.getAttribute('data-src') || '') : '';
+
+        // MOQ
+        const moqEl = el.querySelector('[class*="minOrder"], [class*="moq"], [class*="trade"]');
+        const moqText = moqEl ? moqEl.textContent.trim() : '';
+
+        // Sales
+        const salesEl = el.querySelector('[class*="sale"], [class*="sold"]');
+        const salesText = salesEl ? salesEl.textContent.trim() : '';
+
+        if (title) {
+            results.push({
+                title: title.substring(0, 200),
+                priceText: priceText,
+                shop: shop.substring(0, 60),
+                link: detailLink,
+                image: image,
+                moqText: moqText,
+                salesText: salesText,
+            });
+        }
     }
+    return results;
+}
+"""
 
-    base_info = categories.get(keyword, {"base_price": 20, "moq": 50})
-    base_price = base_info["base_price"]
-    base_moq = base_info["moq"]
 
-    for i in range(5):
-        price_min = round(base_price * (0.8 + random.random() * 0.4), 2)
-        price_max = round(price_min * (1.5 + random.random()), 2)
-        mock_products.append({
-            "product_name": f"{keyword}批发 厂家直供 款式{i + 1}",
-            "price_min": price_min,
-            "price_max": price_max,
-            "moq": base_moq + i * 10,
-            "shop_name": f"义乌市{keyword}源头工厂店",
-            "source": "1688_mock",
-            "product_url": f"https://detail.1688.com/offer/mock_{keyword}_{i + 1}.html",
-        })
+def search_products(keyword: str, page: int = 1, sort: str = "", limit: int = 20) -> list[dict[str, Any]]:
+    if not settings.persistent_context_available:
+        logger.info("1688: Server mode — persistent_context unavailable, skipping")
+        return []
+    url = _build_search_url(keyword, page, sort)
+    logger.info(f"1688: Searching for '{keyword}' at {url}")
 
-    return mock_products
+    try:
+        from playwright.sync_api import sync_playwright
+
+        with sync_playwright() as p:
+            context = p.chromium.launch_persistent_context(
+                user_data_dir=settings.edge_user_data,
+                headless=False,
+                channel="msedge",
+                args=[
+                    "--disable-infobars",
+                    f"--profile-directory={settings.edge_profile_dir}",
+                ],
+                viewport={"width": 1920, "height": 1080},
+                locale="zh-CN",
+                ignore_default_args=["--enable-automation", "--no-sandbox"],
+            )
+
+            page = context.pages[0] if context.pages else context.new_page()
+
+            context.add_init_script("""
+                Object.defineProperty(navigator, 'webdriver', {get: () => undefined});
+                window.chrome = {runtime: {}};
+            """)
+
+            logger.info("1688: Navigating...")
+            try:
+                page.goto(url, wait_until="domcontentloaded", timeout=60000)
+            except Exception:
+                page.goto(url, wait_until="load", timeout=60000)
+
+            page.wait_for_timeout(3000)
+
+            current_url = page.url
+            if "login" in current_url.lower():
+                logger.warning("1688: Redirected to login")
+                context.close()
+                return []
+
+            if _detect_captcha(page):
+                if not _wait_for_user_verification(page):
+                    context.close()
+                    return []
+                page.wait_for_timeout(2000)
+
+            for _ in range(4):
+                page.mouse.wheel(0, 800)
+                page.wait_for_timeout(1200)
+            page.wait_for_timeout(2000)
+
+            raw_items = page.evaluate(_PAGE_EXTRACT_JS)
+            context.close()
+
+            if not raw_items or not isinstance(raw_items, list):
+                item_count = page.evaluate(_CONTENT_READY_JS)
+                if item_count == 0:
+                    print("⚠️  1688 未检测到商品数据，可能需要手动验证或刷新页面", file=sys.stderr, flush=True)
+
+    except Exception as e:
+        logger.warning(f"1688: Playwright failed: {e}")
+        return []
+
+    if not raw_items or not isinstance(raw_items, list):
+        logger.info("1688: No items extracted from page")
+        return []
+
+    products = []
+    for item in raw_items:
+        if not isinstance(item, dict):
+            continue
+        title = item.get("title", "")
+        if not title:
+            continue
+
+        product = {
+            "product_name": title[:200],
+            "source": "1688",
+        }
+
+        price_text = item.get("priceText", "")
+        if price_text:
+            parsed = _parse_price_text(price_text)
+            if parsed:
+                product["price_min"], product["price_max"] = parsed
+
+        shop = item.get("shop", "")
+        if shop:
+            product["shop_name"] = shop
+
+        link = item.get("link", "")
+        if link and link.startswith("//"):
+            link = f"https:{link}"
+        if link:
+            product["product_url"] = link
+
+        image = item.get("image", "")
+        if image and image.startswith("//"):
+            image = f"https:{image}"
+        if image:
+            product["image_url"] = image
+
+        moq_text = item.get("moqText", "")
+        if moq_text:
+            moq_match = re.search(r"(\d+)", moq_text)
+            if moq_match:
+                product["moq"] = int(moq_match.group(1))
+
+        products.append(product)
+
+    logger.info(f"1688: Parsed {len(products)} products")
+    return products[:limit]
+
+
+if __name__ == "__main__":
+    _os.environ.setdefault("PYTHONIOENCODING", "utf-8")
+
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--keyword", default="")
+    parser.add_argument("--limit", type=int, default=20)
+    parser.add_argument("--page", type=int, default=1)
+    parser.add_argument("--sort", default="")
+    args = parser.parse_args()
+
+    _delete_lock_files()
+    time.sleep(1)
+
+    result = search_products(keyword=args.keyword, limit=args.limit, page=args.page, sort=args.sort)
+    print(json.dumps(result, ensure_ascii=False))

@@ -176,6 +176,24 @@
                 />
               </div>
 
+              <div>
+                <label class="block text-sm text-gray-300 mb-1.5">预算上限 <span class="text-gray-500">(选填)</span></label>
+                <input
+                  v-model="newTaskBudget"
+                  placeholder="留空则不考虑预算"
+                  class="w-full px-3 py-2.5 bg-surface-200/50 border border-white/10 rounded-xl text-sm text-white placeholder-gray-500 focus:border-primary-400/50 focus:outline-none transition-colors"
+                />
+              </div>
+
+              <div>
+                <label class="block text-sm text-gray-300 mb-1.5">品类 <span class="text-gray-500">(选填)</span></label>
+                <input
+                  v-model="newTaskCategory"
+                  placeholder="如：美妆护肤、3C数码"
+                  class="w-full px-3 py-2.5 bg-surface-200/50 border border-white/10 rounded-xl text-sm text-white placeholder-gray-500 focus:border-primary-400/50 focus:outline-none transition-colors"
+                />
+              </div>
+
               <button class="btn-primary w-full mt-2" @click="createTask" :disabled="creating">
                 <Loader2 v-if="creating" :size="16" class="animate-spin mr-2" />
                 {{ creating ? '创建中...' : '开始分析' }}
@@ -204,6 +222,8 @@ const creating = ref(false)
 const newTaskKeywords = ref('抖音热销,美妆护肤')
 const newTaskPlatform = ref('douyin')
 const newTaskLimit = ref(10)
+const newTaskBudget = ref('')
+const newTaskCategory = ref('')
 
 const runningCount = computed(() => tasks.value.filter(t => t.status === 'running').length)
 const completedCount = computed(() => tasks.value.filter(t => t.status === 'completed').length)
@@ -337,7 +357,13 @@ async function createTask() {
     const keywords = newTaskKeywords.value.split(',').map(k => k.trim()).filter(Boolean)
     const res = await taskApi.create({
       type: 'product_analysis',
-      inputJson: { keywords, platform: newTaskPlatform.value, limit: newTaskLimit.value },
+      inputJson: {
+        keywords,
+        platform: newTaskPlatform.value,
+        limit: newTaskLimit.value,
+        ...(newTaskBudget.value ? { budget: newTaskBudget.value } : {}),
+        ...(newTaskCategory.value ? { category: newTaskCategory.value } : {}),
+      },
     })
     tasks.value.unshift(res.data)
     showCreateModal.value = false

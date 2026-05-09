@@ -1,0 +1,18 @@
+# Server deployment: lightweight, no Playwright/Edge
+# Chanmama(cookie) + Yiwugo(cookie) only
+# 1688/Buyin auto-skip (persistent_context unavailable)
+
+FROM python:3.12-slim
+
+WORKDIR /app
+
+# Install only core dependencies (no playwright, no browsers)
+COPY requirements-server.txt .
+RUN pip install --no-cache-dir -r requirements-server.txt
+
+COPY . .
+
+EXPOSE 8001
+
+# Run with explicit server mode warning
+CMD ["python", "-m", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8001"]
