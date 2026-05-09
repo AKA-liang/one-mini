@@ -151,7 +151,7 @@ class ProductPickerAgent(BaseAgent):
         return result
 
     async def _fetch_chanmama_persistent(self, task_id: str, kw: str) -> tuple[list[dict], str]:
-        """Primary: CDP browser (real Edge)."""
+        """Primary: CDP browser — type keyword in search box (like Buyin)."""
         try:
             from app.spiders.browser import get_browser
             from app.spiders.chanmama import _normalize_spu_item
@@ -171,8 +171,47 @@ class ProductPickerAgent(BaseAgent):
                     pass
 
             page.on("response", _on_response)
-            url = f"https://www.chanmama.com/SPUrank/?keyword={kw}"
-            await page.goto(url, wait_until="networkidle", timeout=45000)
+
+            # Navigate to SPUrank and type search (not URL param — avoids encoding issues)
+            await page.goto("https://www.chanmama.com/SPUrank/", wait_until="networkidle", timeout=30000)
+            await page.wait_for_timeout(3000)
+
+            # Find search input and type keyword
+            search_input = await page.query_selector('input[placeholder*="搜索"], input[type="text"], input:not([type="hidden"])')
+            if search_input:
+                await search_input.click()
+                await page.wait_for_timeout(300)
+                await search_input.fill("")  # Clear any existing text
+                await page.wait_for_timeout(200)
+                await search_input.type(kw, delay=50)
+                await page.wait_for_timeout(500)
+
+                # Try pressing Enter
+                await search_input.press("Enter")
+                await page.wait_for_timeout(1500)
+
+                # If page hasn't changed, try clicking search button
+                cur_url = await page.evaluate("window.location.href")
+                if "keyword=" not in cur_url:
+                    search_btn = await page.query_selector(
+                        'button[class*="search"], [class*="search"] button, '
+                        '[class*="Search"] [class*="btn"], .ant-input-search-button, '
+                        'input + span[class*="search"], [class*="search"] svg, '
+                        'button:has(svg), [class*="icon-search"]'
+                    )
+                    if search_btn:
+                        await search_btn.click()
+                        await page.wait_for_timeout(2000)
+
+                logger.info(f"Chanmama: Typed '{kw}' in search box")
+
+            # Wait for SPU search API response
+            await asyncio.sleep(2)
+            # If no API response yet, extra wait
+            if not captured_items:
+                await asyncio.sleep(5)
+
+            # Wait for API + table render
             try:
                 await page.wait_for_selector('table, [class*="row"]', timeout=15000)
             except Exception:

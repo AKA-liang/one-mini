@@ -73,31 +73,48 @@ public class TaskResultConsumer {
         StreamReadOptions options = StreamReadOptions.empty().count(10);
 
         try {
+            // On first run, read all pending messages from stream start
+            if (!groupInitialized) {
+                List<MapRecord<String, Object, Object>> catchup = redisTemplate.opsForStream().read(
+                        consumer,
+                        options,
+                        StreamOffset.create(RESULT_STREAM, ReadOffset.from("0-0"))
+                );
+                if (catchup != null && !catchup.isEmpty()) {
+                    log.info("Catching up {} pending result messages", catchup.size());
+                    processMessages(catchup);
+                }
+            }
+
+            // Normal: read new messages
             List<MapRecord<String, Object, Object>> messages = redisTemplate.opsForStream().read(
                     consumer,
                     options,
                     StreamOffset.create(RESULT_STREAM, ReadOffset.lastConsumed())
             );
-
-            if (messages == null || messages.isEmpty()) return;
-
-            for (MapRecord<String, Object, Object> message : messages) {
-                try {
-                    String taskId = getStrValue(message, "task_id");
-                    String fromAgent = getStrValue(message, "from_agent");
-                    String status = getStrValue(message, "status");
-                    String resultJson = getStrValue(message, "result");
-
-                    if (taskId == null) continue;
-
-                    log.info("Processing result: taskId={}, fromAgent={}, status={}", taskId, fromAgent, status);
-                    processResult(taskId, fromAgent, status, resultJson);
-                } catch (Exception e) {
-                    log.error("Error processing result message: {}", e.getMessage());
-                }
-            }
+            processMessages(messages);
         } catch (Exception e) {
             log.debug("Error reading result stream: {}", e.getMessage());
+        }
+    }
+
+    private void processMessages(List<MapRecord<String, Object, Object>> messages) {
+        if (messages == null || messages.isEmpty()) return;
+
+        for (MapRecord<String, Object, Object> message : messages) {
+            try {
+                String taskId = getStrValue(message, "task_id");
+                String fromAgent = getStrValue(message, "from_agent");
+                String status = getStrValue(message, "status");
+                String resultJson = getStrValue(message, "result");
+
+                if (taskId == null) continue;
+
+                log.info("Processing result: taskId={}, fromAgent={}, status={}", taskId, fromAgent, status);
+                processResult(taskId, fromAgent, status, resultJson);
+            } catch (Exception e) {
+                log.error("Error processing result message: {}", e.getMessage());
+            }
         }
     }
 
