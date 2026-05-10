@@ -42,12 +42,31 @@ def _launch_session():
         window.chrome = { runtime: {} };
     """)
     context.set_default_timeout(30000)
+
+    # Login check — navigate to creator center and verify session
+    try:
+        page.goto(COMMENT_PAGE_URL, wait_until="domcontentloaded", timeout=30000)
+        page.wait_for_timeout(3000)
+        cur_url = page.url
+        if "login" in cur_url.lower() or "passport" in cur_url.lower() or "douyinec.com" in cur_url:
+            logger.warning("Douyin: Not logged into creator.douyin.com — login required in Edge")
+            context.close()
+            p.stop()
+            return None, None, None
+    except Exception as e:
+        logger.warning(f"Douyin: Login check failed — {e}")
+        context.close()
+        p.stop()
+        return None, None, None
+
     return p, context, page
 
 
 def list_works() -> list[dict[str, Any]]:
     """List all published works from Douyin creator center."""
     p, context, page = _launch_session()
+    if not page:
+        return []
     works: list[dict[str, Any]] = []
 
     try:
@@ -96,6 +115,8 @@ def list_works() -> list[dict[str, Any]]:
 def export_comments(work_title: str, limit: int = 200) -> dict[str, Any]:
     """Export unreplied comments for a specific work."""
     p, context, page = _launch_session()
+    if not page:
+        return {"selectedWork": {"title": work_title}, "count": 0, "comments": [], "error": "login_required"}
     result: dict[str, Any] = {"selectedWork": {"title": work_title}, "count": 0, "comments": []}
 
     try:
@@ -164,6 +185,8 @@ def export_comments(work_title: str, limit: int = 200) -> dict[str, Any]:
 def reply_comments(reply_plan: list[dict[str, Any]], work_title: str) -> dict[str, Any]:
     """Batch reply to comments."""
     p, context, page = _launch_session()
+    if not page:
+        return {"total": 0, "replied": 0, "results": [], "error": "login_required"}
     results: list[dict] = []
 
     try:
@@ -238,11 +261,9 @@ def reply_comments(reply_plan: list[dict[str, Any]], work_title: str) -> dict[st
 def publish_article(title: str, content: str, image_path: str = "",
                     subtitle: str = "", tags: list[str] | None = None,
                     dry_run: bool = False) -> dict[str, Any]:
-    """Publish an article on Douyin creator center.
-    Ref: publish-douyin-article.mjs
-    URL: creator.douyin.com/creator-micro/content/post/article
-    """
     p, context, page = _launch_session()
+    if not page:
+        return {"status": "login_required", "title": title, "error": "login_required"}
     result = {"status": "dry_run" if dry_run else "published", "title": title}
 
     try:
@@ -313,11 +334,9 @@ def publish_article(title: str, content: str, image_path: str = "",
 
 def publish_imagetext(title: str, image_paths: list[str],
                       description: str = "", dry_run: bool = False) -> dict[str, Any]:
-    """Publish imagetext (图片作品) on Douyin creator center.
-    Ref: publish-douyin-imagetext.mjs
-    URL: creator.douyin.com/creator-micro/content/upload?default-tab=3
-    """
     p, context, page = _launch_session()
+    if not page:
+        return {"status": "login_required", "title": title, "error": "login_required"}
     result = {"status": "dry_run" if dry_run else "published", "title": title}
 
     try:

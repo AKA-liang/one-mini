@@ -65,6 +65,8 @@ class DouyinOperatorAgent(BaseAgent):
             tags = payload.get("tags", [])
             dry_run = payload.get("dry_run", False)
             result = await asyncio.to_thread(publish_article, title, content, image, subtitle, tags, dry_run)
+            if result.get("status") == "login_required":
+                result["error"] = "发布失败 — 请先在 Edge 中登录 creator.douyin.com"
             result["task_id"] = task_id
             result["agent"] = self.name
             await self.bus.log(task_id, self.name, "info", f"Article publish: {result.get('status')}")
@@ -77,6 +79,8 @@ class DouyinOperatorAgent(BaseAgent):
             desc = payload.get("description", "")
             dry_run = payload.get("dry_run", False)
             result = await asyncio.to_thread(publish_imagetext, title, image_paths, desc, dry_run)
+            if result.get("status") == "login_required":
+                result["error"] = "发布失败 — 请先在 Edge 中登录 creator.douyin.com"
             result["task_id"] = task_id
             result["agent"] = self.name
             await self.bus.log(task_id, self.name, "info", f"Imagetext publish: {result.get('status')}")
@@ -89,7 +93,8 @@ class DouyinOperatorAgent(BaseAgent):
         await self.bus.log(task_id, self.name, "info", f"Found {len(works)} works")
 
         if not works:
-            return {"task_id": task_id, "agent": self.name, "error": "No works found — may need manual login"}
+            return {"task_id": task_id, "agent": self.name,
+                    "error": "未找到作品 — 请先在 Edge 中登录 creator.douyin.com 后再试"}
 
         # Step 2: Export comments
         if not work_title and works:
