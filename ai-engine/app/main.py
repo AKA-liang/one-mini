@@ -14,6 +14,7 @@ from app.agents.finance_analyst import FinanceAnalystAgent
 from app.agents.douyin_operator import DouyinOperatorAgent
 from app.message_bus import MessageBus, get_message_bus
 from app.logger import init_logging, get_logger
+from app.config import settings
 from app.spiders.browser import get_browser
 
 
