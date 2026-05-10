@@ -78,7 +78,7 @@ class ProductPickerAgent(BaseAgent):
             category = None
         search_kw = " ".join(keywords) if keywords else ""
         # Hot list fallback: no keywords → use trending defaults
-        if not search_kw:
+        if not search_kw or "?" in search_kw:
             trending = search_trending_keywords()
             search_kw = " ".join(trending[:3]) if trending else "美妆护肤"
             await self.bus.log(task_id, self.name, "info",
@@ -151,91 +151,14 @@ class ProductPickerAgent(BaseAgent):
         return result
 
     async def _fetch_chanmama_persistent(self, task_id: str, kw: str) -> tuple[list[dict], str]:
-        """Primary: CDP browser — type keyword in search box (like Buyin)."""
+        """Primary: persistent_context (real Edge profile, API interception)."""
         try:
-            from app.spiders.browser import get_browser
-            from app.spiders.chanmama import _normalize_spu_item
-            browser = await get_browser()
-            page = await browser.new_page()
-
-            captured_items: list[dict] = []
-
-            async def _on_response(response):
-                try:
-                    if response.status == 200 and "/v1/spu/search" in response.url:
-                        body = await response.json()
-                        data = body.get("data", {}).get("list", [])
-                        if isinstance(data, list):
-                            captured_items.extend(data)
-                except Exception:
-                    pass
-
-            page.on("response", _on_response)
-
-            # Navigate to SPUrank and type search (not URL param — avoids encoding issues)
-            await page.goto("https://www.chanmama.com/SPUrank/", wait_until="networkidle", timeout=30000)
-            await page.wait_for_timeout(3000)
-
-            # Find search input and type keyword
-            search_input = await page.query_selector('input[placeholder*="搜索"], input[type="text"], input:not([type="hidden"])')
-            if search_input:
-                await search_input.click()
-                await page.wait_for_timeout(300)
-                await search_input.fill("")  # Clear any existing text
-                await page.wait_for_timeout(200)
-                await search_input.type(kw, delay=50)
-                await page.wait_for_timeout(500)
-
-                # Try pressing Enter
-                await search_input.press("Enter")
-                await page.wait_for_timeout(1500)
-
-                # If page hasn't changed, try clicking search button
-                cur_url = await page.evaluate("window.location.href")
-                if "keyword=" not in cur_url:
-                    search_btn = await page.query_selector(
-                        'button[class*="search"], [class*="search"] button, '
-                        '[class*="Search"] [class*="btn"], .ant-input-search-button, '
-                        'input + span[class*="search"], [class*="search"] svg, '
-                        'button:has(svg), [class*="icon-search"]'
-                    )
-                    if search_btn:
-                        await search_btn.click()
-                        await page.wait_for_timeout(2000)
-
-                logger.info(f"Chanmama: Typed '{kw}' in search box")
-
-            # Wait for SPU search API response
-            await asyncio.sleep(2)
-            # If no API response yet, extra wait
-            if not captured_items:
-                await asyncio.sleep(5)
-
-            # Wait for API + table render
-            try:
-                await page.wait_for_selector('table, [class*="row"]', timeout=15000)
-            except Exception:
-                pass
-            import asyncio
-            await asyncio.sleep(3)
-
-            products = []
-            seen = set()
-            for item in captured_items[:100]:
-                norm = _normalize_spu_item(item)
-                name = norm.get("title", "")
-                if name:
-                    import re
-                    simple = re.sub(r"[\s\-_]", "", name)[:30].lower()
-                    if simple not in seen:
-                        seen.add(simple)
-                        products.append(norm)
-
-            await page.close()
-            await self.bus.log(task_id, self.name, "info", f"Chanmama(CDP): {len(products)} products")
-            return products, ""
+            from app.spiders.chanmama import search_hot_products_persistent
+            data = await asyncio.to_thread(search_hot_products_persistent, keyword=kw, limit=50)
+            await self.bus.log(task_id, self.name, "info", f"Chanmama(persistent): {len(data)} products")
+            return data, ""
         except Exception as e:
-            await self.bus.log(task_id, self.name, "warning", f"Chanmama(CDP) failed: {e}")
+            await self.bus.log(task_id, self.name, "warning", f"Chanmama(persistent) failed: {e}")
             return [], str(e)
 
     async def _fetch_chanmama_cookie(self, task_id: str, kw: str) -> tuple[list[dict], str]:

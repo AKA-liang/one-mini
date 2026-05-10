@@ -4,6 +4,7 @@ import com.one.mini.entity.Task;
 import com.one.mini.entity.TaskStep;
 import com.one.mini.service.TaskService;
 import com.one.mini.service.MessageBusService;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -18,11 +19,20 @@ import java.util.Map;
 public class TaskController {
     private final TaskService taskService;
     private final MessageBusService messageBusService;
+    private final ObjectMapper objectMapper;
 
     @PostMapping
     public Task createTask(@RequestBody Map<String, Object> body) {
         String type = (String) body.getOrDefault("type", "product_analysis");
-        String inputJson = body.get("inputJson") != null ? body.get("inputJson").toString() : "{}";
+        Object input = body.get("inputJson");
+        String inputJson = "{}";
+        if (input != null) {
+            try {
+                inputJson = objectMapper.writeValueAsString(input);
+            } catch (Exception e) {
+                inputJson = input.toString();
+            }
+        }
 
         Task task = taskService.createTask(type, inputJson);
 

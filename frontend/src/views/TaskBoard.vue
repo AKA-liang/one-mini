@@ -65,8 +65,8 @@
           </div>
         </div>
 
-        <!-- Task ID -->
-        <div class="text-xs text-gray-500 font-mono mb-3">{{ task.taskId }}</div>
+        <!-- Task Time -->
+        <div class="text-xs text-gray-500 mb-3">创建于 {{ formatTime(task.createdAt) }}</div>
 
         <!-- Steps Flow -->
         <div v-if="task.steps && task.steps.length" class="flex items-center gap-2 flex-wrap">

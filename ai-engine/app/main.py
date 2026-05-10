@@ -44,13 +44,9 @@ async def lifespan(app: FastAPI):
     }
     logger.info("AI Engine started", extra={"agents": list(agents.keys())})
 
-    # Start persistent Edge browser
+    # Start persistent Edge browser (CDP) — disabled: conflicts with persistent_context
+    # browser = await get_browser()
     browser = None
-    try:
-        browser = await get_browser()
-        logger.info("Edge browser connected via CDP")
-    except Exception as e:
-        logger.warning(f"Browser: CDP Edge not available ({e}) — persistent_context fallback will be used")
 
     asyncio.create_task(_consume_tasks())
     yield
