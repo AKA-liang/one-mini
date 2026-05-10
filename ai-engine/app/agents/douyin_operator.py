@@ -13,7 +13,7 @@ from app.agents.base_agent import BaseAgent
 from app.llm.base import LLMMessage
 from app.llm.router import chat
 from app.message_bus import MessageBus
-from app.spiders.douyin_creator import list_works, export_comments, reply_comments
+from app.spiders.douyin_creator import list_works, export_comments, reply_comments, publish_article, publish_imagetext
 
 REPLY_PROMPT = """你是抖音账号的客服助手。根据评论内容生成回复。
 
@@ -52,7 +52,39 @@ class DouyinOperatorAgent(BaseAgent):
 
         await self.bus.log(task_id, self.name, "info", f"Starting: action={action}")
 
-        # Step 1: List works
+        # ─── Action: auto_reply (comment management) ───
+        if action == "auto_reply":
+            return await self._handle_auto_reply(task_id, work_title, reply_limit)
+
+        # ─── Action: publish_article ───
+        if action == "publish_article":
+            title = payload.get("title", "")
+            content = payload.get("content", "")
+            image = payload.get("image_path", "")
+            subtitle = payload.get("subtitle", "")
+            tags = payload.get("tags", [])
+            dry_run = payload.get("dry_run", False)
+            result = await asyncio.to_thread(publish_article, title, content, image, subtitle, tags, dry_run)
+            result["task_id"] = task_id
+            result["agent"] = self.name
+            await self.bus.log(task_id, self.name, "info", f"Article publish: {result.get('status')}")
+            return result
+
+        # ─── Action: publish_imagetext ───
+        if action == "publish_imagetext":
+            title = payload.get("title", "")
+            image_paths = payload.get("image_paths", [])
+            desc = payload.get("description", "")
+            dry_run = payload.get("dry_run", False)
+            result = await asyncio.to_thread(publish_imagetext, title, image_paths, desc, dry_run)
+            result["task_id"] = task_id
+            result["agent"] = self.name
+            await self.bus.log(task_id, self.name, "info", f"Imagetext publish: {result.get('status')}")
+            return result
+
+        return {"task_id": task_id, "agent": self.name, "error": f"Unknown action: {action}"}
+
+    async def _handle_auto_reply(self, task_id: str, work_title: str, reply_limit: int) -> dict[str, Any]:
         works = await asyncio.to_thread(list_works)
         await self.bus.log(task_id, self.name, "info", f"Found {len(works)} works")
 

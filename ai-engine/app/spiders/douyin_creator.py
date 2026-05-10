@@ -231,3 +231,144 @@ def reply_comments(reply_plan: list[dict[str, Any]], work_title: str) -> dict[st
         p.stop()
 
     return {"total": len(reply_plan), "replied": sum(1 for r in results if r.get("status") == "replied"), "results": results}
+
+
+def publish_article(title: str, content: str, image_path: str = "",
+                    subtitle: str = "", tags: list[str] | None = None,
+                    dry_run: bool = False) -> dict[str, Any]:
+    """Publish an article on Douyin creator center.
+    Ref: publish-douyin-article.mjs
+    URL: creator.douyin.com/creator-micro/content/post/article
+    """
+    p, context, page = _launch_session()
+    result = {"status": "dry_run" if dry_run else "published", "title": title}
+
+    try:
+        url = "https://creator.douyin.com/creator-micro/content/post/article"
+        page.goto(url, wait_until="domcontentloaded", timeout=60000)
+        page.wait_for_timeout(3000)
+
+        # Dismiss popups
+        for _ in range(3):
+            dismiss = page.query_selector('text="我知道了"')
+            if not dismiss:
+                break
+            try:
+                dismiss.click()
+                page.wait_for_timeout(500)
+            except Exception:
+                break
+
+        # Fill title
+        title_input = page.get_by_placeholder("请输入文章标题").first
+        title_input.fill(title[:30])
+        page.wait_for_timeout(300)
+
+        # Fill subtitle
+        if subtitle:
+            sub = page.get_by_placeholder("添加内容摘要").first
+            sub.fill(subtitle[:30])
+            page.wait_for_timeout(300)
+
+        # Fill content
+        body = content[:8000] if content else ""
+        if tags:
+            body += "\n\n" + " ".join(f"#{t}" for t in tags[:5])
+        editor = page.locator('[contenteditable="true"]').first
+        editor.click()
+        page.wait_for_timeout(300)
+        editor.fill(body)
+        page.wait_for_timeout(500)
+
+        # Upload header image
+        if image_path and os.path.exists(image_path):
+            upload_area = page.get_by_text("点击上传图片").first
+            with page.expect_file_chooser(timeout=10000) as fc_info:
+                upload_area.click()
+            fc_info.value.set_files(image_path)
+            page.wait_for_timeout(3000)
+            confirm = page.get_by_role("button", name="确定").first
+            confirm.click()
+            page.wait_for_timeout(3000)
+
+        if not dry_run:
+            publish_btn = page.get_by_role("button", name="发布", exact=True).first
+            publish_btn.click()
+            page.wait_for_timeout(3000)
+            result["status"] = "published"
+
+        logger.info(f"Douyin: Article published: {title[:30]}")
+    except Exception as e:
+        logger.warning(f"Douyin publish_article failed: {e}")
+        result["status"] = "failed"
+        result["error"] = str(e)
+    finally:
+        context.close()
+        p.stop()
+
+    return result
+
+
+def publish_imagetext(title: str, image_paths: list[str],
+                      description: str = "", dry_run: bool = False) -> dict[str, Any]:
+    """Publish imagetext (图片作品) on Douyin creator center.
+    Ref: publish-douyin-imagetext.mjs
+    URL: creator.douyin.com/creator-micro/content/upload?default-tab=3
+    """
+    p, context, page = _launch_session()
+    result = {"status": "dry_run" if dry_run else "published", "title": title}
+
+    try:
+        url = "https://creator.douyin.com/creator-micro/content/upload?default-tab=3"
+        page.goto(url, wait_until="domcontentloaded", timeout=60000)
+        page.wait_for_timeout(3000)
+
+        # Dismiss popups
+        for _ in range(3):
+            dismiss = page.query_selector('text="我知道了"')
+            if not dismiss:
+                break
+            try:
+                dismiss.click()
+                page.wait_for_timeout(500)
+            except Exception:
+                break
+
+        # Upload images
+        if image_paths:
+            upload_btn = page.get_by_text("上传图文").first
+            with page.expect_file_chooser(timeout=10000) as fc_info:
+                upload_btn.click()
+            fc_info.value.set_files(image_paths)
+            page.wait_for_timeout(5000)
+
+        # Fill title
+        if title:
+            title_input = page.get_by_placeholder("添加作品标题").first
+            title_input.fill(title[:20])
+            page.wait_for_timeout(300)
+
+        # Fill description
+        if description:
+            desc_input = page.get_by_placeholder("添加作品标题").first
+            desc_input.press("Tab")
+            page.wait_for_timeout(300)
+            page.keyboard.type(description[:1000])
+            page.wait_for_timeout(500)
+
+        if not dry_run:
+            publish_btn = page.get_by_role("button", name="发布", exact=True).first
+            publish_btn.click()
+            page.wait_for_timeout(3000)
+            result["status"] = "published"
+
+        logger.info(f"Douyin: Imagetext published: {title[:30]}")
+    except Exception as e:
+        logger.warning(f"Douyin publish_imagetext failed: {e}")
+        result["status"] = "failed"
+        result["error"] = str(e)
+    finally:
+        context.close()
+        p.stop()
+
+    return result
