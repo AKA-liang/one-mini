@@ -12,6 +12,15 @@
       </button>
     </div>
 
+    <!-- Toast notification -->
+    <Transition name="toast-fade">
+      <div v-if="toastMessage"
+        class="fixed top-4 right-4 z-50 bg-red-500/90 text-white px-5 py-3 rounded-lg shadow-lg backdrop-blur-sm text-sm font-medium max-w-md"
+        @click="toastMessage = ''">
+        {{ toastMessage }}
+      </div>
+    </Transition>
+
     <!-- Stats Bar -->
     <div class="grid grid-cols-4 gap-4">
       <div class="glass-card p-4">
@@ -239,6 +248,14 @@ const newTaskLimit = ref(10)
 const newTaskBudget = ref('')
 const newTaskCategory = ref('')
 const showAllTasks = ref(false)
+const toastMessage = ref('')
+const toastTimer = ref<ReturnType<typeof setTimeout> | null>(null)
+
+function showToast(msg: string) {
+  toastMessage.value = msg
+  if (toastTimer.value) clearTimeout(toastTimer.value)
+  toastTimer.value = setTimeout(() => { toastMessage.value = '' }, 4000)
+}
 
 const runningCount = computed(() => tasks.value.filter(t => t.status === 'running').length)
 const completedCount = computed(() => tasks.value.filter(t => t.status === 'completed').length)
@@ -348,7 +365,7 @@ async function createTask() {
     pollTask(res.data.taskId)
   } catch (err) {
     console.error('创建任务失败:', err)
-    alert('任务创建失败，请检查服务是否正常')
+    showToast('任务创建失败，请检查服务是否正常')
   } finally {
     creating.value = false
   }
@@ -366,3 +383,13 @@ function parseProducts(task: TaskVO): any[] {
 
 onMounted(loadTasks)
 </script>
+
+<style scoped>
+.toast-fade-enter-active, .toast-fade-leave-active {
+  transition: opacity 0.3s ease, transform 0.3s ease;
+}
+.toast-fade-enter-from, .toast-fade-leave-to {
+  opacity: 0;
+  transform: translateY(-12px);
+}
+</style>

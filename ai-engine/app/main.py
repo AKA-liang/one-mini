@@ -127,9 +127,25 @@ async def _consume_tasks():
 
                 elif to_agent == "finance_analyst":
                     try:
-                        await agent.run(task_id, payload)
+                        result = await agent.run(task_id, payload)
                         processed += 1
                         logger.info(f"FinanceAnalyst completed task {task_id} (#{processed})")
+                        # Chain to content_creator
+                        cc_agent = agents.get("content_creator")
+                        if cc_agent:
+                            cc_payload = {
+                                "product_analysis": payload.get("product_analysis", result),
+                                "finance_review": result,
+                                "original_task_id": task_id,
+                            }
+                            cc_task_id = str(uuid.uuid4())
+                            await bus.send_task(
+                                cc_task_id, "content_creator", "content_creation",
+                                cc_payload, from_agent="finance_analyst",
+                            )
+                            await bus.log(task_id, "router", "info",
+                                          f"Chained to content_creator with task {cc_task_id}")
+                            logger.info(f"Chained content_creator for task {task_id}")
                     except Exception as e:
                         await bus.log(task_id, "router", "error", f"Agent failed: {e}")
                         logger.error(f"FinanceAnalyst failed for task {task_id}: {e}", exc_info=True)

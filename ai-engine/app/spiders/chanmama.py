@@ -13,6 +13,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import os
 import re
 from typing import Any
 
@@ -25,6 +26,34 @@ CHANMAMA_BASE_URL = "https://www.chanmama.com"
 SPU_API_URL = "https://api-service.chanmama.com/v1/spu/search"
 
 _MAX_ITEMS = 100
+ENV_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), ".env")
+
+
+class SpiderAuthError(Exception):
+    """Raised when spider detects authentication failure (401/403/login redirect)."""
+    pass
+
+
+def _save_chanmama_cookies(cookie_str: str):
+    """Update CHANMAMA_COOKIE in .env with fresh cookies from browser."""
+    try:
+        if not os.path.exists(ENV_PATH):
+            return
+        with open(ENV_PATH, "r", encoding="utf-8") as f:
+            lines = f.readlines()
+        updated = False
+        for i, line in enumerate(lines):
+            if line.startswith("CHANMAMA_COOKIE="):
+                lines[i] = f"CHANMAMA_COOKIE={cookie_str}\n"
+                updated = True
+                break
+        if not updated:
+            lines.append(f"\nCHANMAMA_COOKIE={cookie_str}\n")
+        with open(ENV_PATH, "w", encoding="utf-8") as f:
+            f.writelines(lines)
+        logger.info("Chanmama: Saved fresh cookies to .env")
+    except Exception as e:
+        logger.warning(f"Chanmama: Failed to save cookies to .env: {e}")
 
 
 def _normalize_spu_item(item: dict[str, Any]) -> dict[str, Any]:
@@ -124,11 +153,22 @@ async def _fetch_spu_page(keyword: str, page_num: int = 1, size: int = 50) -> li
             await browser.close()
             return []
 
+        # Save fresh cookies from successful session
+        if captured_data:
+            try:
+                cookies = await ctx.cookies()
+                cookie_str = "; ".join(f"{c['name']}={c['value']}" for c in cookies if c.get('name') and c.get('value'))
+                if cookie_str:
+                    _save_chanmama_cookies(cookie_str)
+            except Exception:
+                pass
+
         await browser.close()
 
     if error_flag:
-        logger.warning(f"Chanmama API fetch aborted: {error_flag[0]}")
-        return []
+        msg = error_flag[0]
+        logger.warning(f"Chanmama API fetch aborted: {msg}")
+        raise SpiderAuthError(msg)
 
     return captured_data
 
@@ -216,9 +256,20 @@ def _search_via_persistent_context(keyword: str) -> list[dict[str, Any]]:
             page.on("response", _handle_response)
             page.goto(url, wait_until="domcontentloaded", timeout=30000)
             page.wait_for_timeout(5000)
+            if captured_items:
+                try:
+                    cookies = context.cookies()
+                    cookie_str = "; ".join(f"{c['name']}={c['value']}" for c in cookies if c.get('name') and c.get('value'))
+                    if cookie_str:
+                        _save_chanmama_cookies(cookie_str)
+                except Exception:
+                    pass
             context.close()
     except Exception:
         pass
+
+    if auth_errors:
+        raise SpiderAuthError(auth_errors[0])
 
     return captured_items
 

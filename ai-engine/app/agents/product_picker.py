@@ -176,6 +176,7 @@ class ProductPickerAgent(BaseAgent):
         from app.spiders.browser import get_browser
         all_products: list[dict] = []
         seen: set[str] = set()
+        buyin_errors: list[str] = []
 
         for name in names[:5]:
             try:
@@ -200,11 +201,15 @@ class ProductPickerAgent(BaseAgent):
                     await page.wait_for_timeout(5000)
 
                 body_text = await page.evaluate("document.body.innerText || ''")
+                error_matched = None
                 for pat in ["网络不稳定", "请稍后再试", "登录", "验证", "系统错误"]:
                     if pat in body_text:
                         logger.warning(f"Buyin: Error — {pat}")
+                        error_matched = pat
                         await page.close()
                         break
+                if error_matched:
+                    buyin_errors.append(f"buyin/{name}: {error_matched}")
                 else:
                     # Extract data
                     from app.spiders.buyin import _SEARCH_EXTRACT_JS, _normalize_product
@@ -221,7 +226,8 @@ class ProductPickerAgent(BaseAgent):
             except Exception as e:
                 logger.warning(f"Buyin CDP for '{name}': {e}")
 
-        return all_products, ""
+        error_str = "; ".join(buyin_errors[:5]) if buyin_errors else ""
+        return all_products, error_str
 
     def _extract_product_names(self, data: list[dict], n: int = 5) -> list[str]:
         names: list[str] = []

@@ -140,6 +140,23 @@ ai-engine/app/
 4. **单任务耗时 ~2-4分钟** (3次百应搜索 + LLM)
 5. **Edge 必须关闭** 再运行 AI Engine
 
+## 架构债务 / 已知问题
+
+### 抖音操作：Node.js 与 Python 双实现
+- `douyin-creator-tools/src/*.mjs` — Node.js CLI，npm scripts 完整，独立可运行
+- `ai-engine/app/spiders/douyin_creator.py` — Python 重写，供 AI Engine Agent 调用
+- 两套实现功能完全重叠，抖音页面改版需两边都改
+
+### Skills 层与 Python Agent 未对接
+- `skills/douyin-operator/SKILL.md` 定义了 OpenClaw skill 元数据
+- `ai-engine/app/agents/douyin_operator.py` 独立实现，不引用 skill 定义
+- OpenClaw 调度的是 skill，而 skill 无法调用 Python agent
+
+### 1688 / Yiwugo / WholesaleAggregator 保留为 fallback
+- `alibaba1688.py`、`yiwugo.py`、`wholesale_aggregator.py` 文件保留但不在主 pipeline 中
+- `__init__.py` 已注释掉相关 export，如需启用取消注释即可
+- 1688 需要 Slider 验证（人工介入），不适合自动化
+
 ## 常见问题
 
 ### Q: 任务一直显示"进行中"？

@@ -69,7 +69,10 @@ class DouyinOperatorAgent(BaseAgent):
                 result["error"] = "发布失败 — 请先在 Edge 中登录 creator.douyin.com"
             result["task_id"] = task_id
             result["agent"] = self.name
-            await self.bus.log(task_id, self.name, "info", f"Article publish: {result.get('status')}")
+            await self.bus.log(task_id, self.name, "info",
+                               f"Article publish: {result.get('status')} | "
+                               f"title='{title[:120]}' | content_len={len(content or '')} | "
+                               f"image='{image[:80] if image else 'none'}' | dry_run={dry_run}")
             return result
 
         # ─── Action: publish_imagetext ───
@@ -83,7 +86,10 @@ class DouyinOperatorAgent(BaseAgent):
                 result["error"] = "发布失败 — 请先在 Edge 中登录 creator.douyin.com"
             result["task_id"] = task_id
             result["agent"] = self.name
-            await self.bus.log(task_id, self.name, "info", f"Imagetext publish: {result.get('status')}")
+            await self.bus.log(task_id, self.name, "info",
+                               f"Imagetext publish: {result.get('status')} | "
+                               f"title='{title[:120]}' | desc_len={len(desc or '')} | "
+                               f"images={len(image_paths or [])} | dry_run={dry_run}")
             return result
 
         return {"task_id": task_id, "agent": self.name, "error": f"Unknown action: {action}"}
@@ -140,6 +146,11 @@ class DouyinOperatorAgent(BaseAgent):
 
         # Step 4: Batch reply
         reply_result = await asyncio.to_thread(reply_comments, replies, work_title)
+
+        reply_preview = json.dumps(replies[:3], ensure_ascii=False)[:400]
+        await self.bus.log(task_id, self.name, "info",
+                           f"Batch reply: {len(replies)} replies to '{work_title}' | "
+                           f"results={reply_result.get('summary', '')} | preview={reply_preview}")
 
         result = {
             "task_id": task_id,
