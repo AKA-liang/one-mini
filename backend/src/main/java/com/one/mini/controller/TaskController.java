@@ -39,6 +39,9 @@ public class TaskController {
         String toAgent = "product_picker";
         if ("finance_review".equals(type)) {
             toAgent = "finance_analyst";
+        } else if (type.startsWith("comment_") || type.startsWith("publish_")
+                   || "douyin_operator".equals(type)) {
+            toAgent = "douyin_operator";
         }
 
         @SuppressWarnings("unchecked")

@@ -1,7 +1,7 @@
 import api from './index'
 
 export interface CreateTaskDTO {
-  type: 'product_analysis' | 'finance_review' | 'comment_auto_reply'
+  type: 'product_analysis' | 'finance_review' | 'comment_auto_reply' | 'publish_article' | 'publish_imagetext'
   inputJson: Record<string, unknown>
 }
 

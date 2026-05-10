@@ -154,6 +154,8 @@
                 <select v-model="newTaskType" class="w-full px-3 py-2.5 bg-surface-200/50 border border-white/10 rounded-xl text-sm text-white focus:border-primary-400/50 focus:outline-none transition-colors">
                   <option value="product_analysis">选品分析</option>
                   <option value="comment_auto_reply">评论管理</option>
+                  <option value="publish_article">发布文章</option>
+                  <option value="publish_imagetext">发布图文</option>
                 </select>
               </div>
 
@@ -248,7 +250,7 @@ function statusLabel(status: string): string {
 }
 
 function typeLabel(type: string): string {
-  const map: Record<string, string> = { product_analysis: '选品分析', finance_review: '财务审核', comment_auto_reply: '评论管理' }
+  const map: Record<string, string> = { product_analysis: '选品分析', finance_review: '财务审核', comment_auto_reply: '评论管理', publish_article: '发布文章', publish_imagetext: '发布图文' }
   return map[type] || type
 }
 
@@ -327,9 +329,13 @@ async function createTask() {
     if (newTaskCategory.value) basePayload.category = newTaskCategory.value
 
     const res = await taskApi.create({
-      type: newTaskType.value as 'product_analysis' | 'comment_auto_reply',
+      type: newTaskType.value as 'product_analysis' | 'comment_auto_reply' | 'publish_article' | 'publish_imagetext',
       inputJson: newTaskType.value === 'comment_auto_reply'
         ? { action: 'auto_reply', reply_limit: newTaskLimit.value }
+        : newTaskType.value === 'publish_article'
+        ? { action: 'publish_article', title: keywords[0] || '', content: keywords.join(' '), dry_run: false }
+        : newTaskType.value === 'publish_imagetext'
+        ? { action: 'publish_imagetext', title: keywords[0] || '', description: keywords.join(' '), image_paths: [] }
         : basePayload,
     })
     tasks.value.unshift(res.data)
