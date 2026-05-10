@@ -18,25 +18,69 @@ class MessageBus:
     RESULT_STREAM = "agent:task:result"
     LOG_STREAM = "agent:log"
     COMMAND_STREAM = "agent:command"
+    _MAX_RECONNECT_RETRIES = 3
 
     def __init__(self):
         self.redis: aioredis.Redis | None = None
+        self._connected = False
 
     async def connect(self):
-        self.redis = aioredis.Redis(
-            host=settings.redis_host,
-            port=settings.redis_port,
-            password=settings.redis_password or None,
-            db=settings.redis_db,
-            decode_responses=True,
-        )
-        await self.redis.ping()
-        logger.info(f"Redis connected {settings.redis_host}:{settings.redis_port}")
+        for attempt in range(1, 6):
+            try:
+                self.redis = aioredis.Redis(
+                    host=settings.redis_host,
+                    port=settings.redis_port,
+                    password=settings.redis_password or None,
+                    db=settings.redis_db,
+                    decode_responses=True,
+                    socket_connect_timeout=10,
+                    socket_keepalive=True,
+                    health_check_interval=30,
+                )
+                await self.redis.ping()
+                self._connected = True
+                logger.info(f"Redis connected {settings.redis_host}:{settings.redis_port}")
+                return
+            except Exception as e:
+                wait = min(2 ** attempt, 15)
+                logger.warning(f"Redis connect attempt {attempt}/5 failed: {e} — retry in {wait}s")
+                if attempt < 5:
+                    await asyncio.sleep(wait)
+                else:
+                    self._connected = False
+                    raise RuntimeError(f"Redis connection failed after 5 attempts: {e}")
 
     async def close(self):
         if self.redis:
             await self.redis.close()
+            self._connected = False
             logger.info("Redis disconnected")
+
+    async def _ensure_connected(self) -> bool:
+        if self._connected and self.redis:
+            try:
+                await self.redis.ping()
+                return True
+            except Exception:
+                self._connected = False
+        for attempt in range(1, self._MAX_RECONNECT_RETRIES + 1):
+            try:
+                await self.redis.ping()
+                self._connected = True
+                logger.info("Redis reconnected")
+                return True
+            except Exception as e:
+                logger.warning(f"Redis reconnect attempt {attempt}/{self._MAX_RECONNECT_RETRIES}: {e}")
+                await asyncio.sleep(2)
+        logger.error("Redis: all reconnect attempts failed")
+        return False
+
+    async def health(self) -> bool:
+        try:
+            await self.redis.ping()
+            return True
+        except Exception:
+            return False
 
     async def send_task(
         self,
@@ -59,10 +103,13 @@ class MessageBus:
             "timestamp": datetime.now().isoformat(),
         }
         try:
+            if not self._connected:
+                await self._ensure_connected()
             result = await self.redis.xadd(self.TASK_STREAM, message)
             return result
         except Exception as e:
             logger.error(f"Redis send_task failed for {task_id}: {e}")
+            self._connected = False
             raise
 
     async def send_result(
@@ -80,10 +127,13 @@ class MessageBus:
             "timestamp": datetime.now().isoformat(),
         }
         try:
+            if not self._connected:
+                await self._ensure_connected()
             resp = await self.redis.xadd(self.RESULT_STREAM, message)
             return resp
         except Exception as e:
             logger.error(f"Redis send_result failed for {task_id}: {e}")
+            self._connected = False
             raise
 
     async def read_task(self, count: int = 1, block: int = 5000) -> list[dict[str, Any]]:
@@ -131,9 +181,12 @@ class MessageBus:
             "timestamp": datetime.now().isoformat(),
         }
         try:
+            if not self._connected:
+                await self._ensure_connected()
             await self.redis.xadd(self.LOG_STREAM, log_msg)
         except Exception as e:
             logger.warning(f"Redis log failed for {task_id}: {e}")
+            self._connected = False
 
     async def send_command(
         self,

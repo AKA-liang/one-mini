@@ -94,6 +94,8 @@ async def _fetch_spu_page(keyword: str, page_num: int = 1, size: int = 50) -> li
     async def _on_response(response):
         try:
             url = response.url
+            if response.status in (401, 403) and "chanmama.com" in url:
+                error_flag.append(f"Auth failure HTTP {response.status} on {url}")
             if response.status == 200 and "/v1/spu/search" in url:
                 body = await response.json()
                 data = body.get("data", {}).get("list", [])
@@ -181,10 +183,13 @@ def _search_via_persistent_context(keyword: str) -> list[dict[str, Any]]:
     from app.config import settings
 
     captured_items: list[dict[str, Any]] = []
+    auth_errors: list[str] = []
     url = f"{CHANMAMA_BASE_URL}/SPUrank/?keyword={keyword}"
 
     def _handle_response(response):
         try:
+            if response.status in (401, 403) and "chanmama.com" in response.url:
+                auth_errors.append(f"Auth failure HTTP {response.status} on {response.url}")
             if response.status == 200 and "/v1/spu/search" in response.url:
                 body = response.json()
                 data = body.get("data", {}).get("list", [])

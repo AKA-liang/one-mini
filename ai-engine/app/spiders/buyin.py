@@ -181,6 +181,13 @@ def search_buyin(keyword: str = "", limit: int = 10) -> list[dict[str, Any]]:
                 logger.warning("Buyin: Search input not found")
 
             body_text = await page.evaluate("document.body.innerText || ''")
+            page_url = page.url
+            from app.spiders.cookie_manager import detect_auth_failure
+            auth_fail = detect_auth_failure(url=page_url, page_text=body_text)
+            if auth_fail:
+                logger.error(f"Buyin: Auth failure — {auth_fail['reason']}")
+                await page.close()
+                return [], ""
             for pat, msg in [("网络不稳定", "Network"), ("请稍后再试", "Retry"),
                              ("登录", "Login"), ("验证", "Capcha"), ("系统错误", "Error")]:
                 if pat in body_text:
@@ -189,14 +196,21 @@ def search_buyin(keyword: str = "", limit: int = 10) -> list[dict[str, Any]]:
                     return []
 
             data = await page.evaluate(_SEARCH_EXTRACT_JS)
+            cookie_list = await page.context.cookies()
+            cookie_str = "; ".join(f"{c['name']}={c['value']}" for c in cookie_list if c.get('name') and c.get('value'))
             await page.close()
-            return data
+            return data, cookie_str
 
-        extracted_items = _asyncio.run(_search())
+        extracted_items, fresh_cookies = _asyncio.run(_search())
 
     except Exception as e:
         logger.warning(f"Buyin: CDP search failed: {e} — falling back to persistent_context")
+        extracted_items, fresh_cookies = [], ""
+
+    # Try persistent_context fallback
+    if not extracted_items:
         extracted_items = _search_via_persistent_context(keyword)
+        fresh_cookies = ""  # persistent_context stores cookies in profile, no need to extract
 
     if not extracted_items:
         return []
@@ -217,6 +231,10 @@ def search_buyin(keyword: str = "", limit: int = 10) -> list[dict[str, Any]]:
                 continue
             seen.add(name)
             products.append(normalized)
+
+    if products and fresh_cookies:
+        _save_fresh_cookies(fresh_cookies)
+        logger.info("Buyin: Saved fresh cookies to .env")
 
     logger.info(f"Buyin: Found {len(products)} products (validated against keyword)")
     if not products and extracted_items:
@@ -248,6 +266,14 @@ def _search_via_persistent_context(keyword: str) -> list[dict[str, Any]]:
             """)
             page.goto(PICKING_LIBRARY_URL, wait_until="domcontentloaded", timeout=45000)
             page.wait_for_timeout(6000)
+
+            body = page.evaluate("document.body.innerText || ''")
+            from app.spiders.cookie_manager import detect_auth_failure
+            auth_fail = detect_auth_failure(url=page.url, page_text=body)
+            if auth_fail:
+                logger.error(f"Buyin(persistent): Auth failure — {auth_fail['reason']}")
+                context.close()
+                return []
 
             search_input = page.query_selector('.auxo-input, input[type="search"]')
             if search_input:
