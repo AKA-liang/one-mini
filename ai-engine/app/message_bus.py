@@ -58,8 +58,12 @@ class MessageBus:
             "priority": priority,
             "timestamp": datetime.now().isoformat(),
         }
-        result = await self.redis.xadd(self.TASK_STREAM, message)
-        return result
+        try:
+            result = await self.redis.xadd(self.TASK_STREAM, message)
+            return result
+        except Exception as e:
+            logger.error(f"Redis send_task failed for {task_id}: {e}")
+            raise
 
     async def send_result(
         self,
@@ -75,8 +79,12 @@ class MessageBus:
             "result": json.dumps(result, ensure_ascii=False),
             "timestamp": datetime.now().isoformat(),
         }
-        resp = await self.redis.xadd(self.RESULT_STREAM, message)
-        return resp
+        try:
+            resp = await self.redis.xadd(self.RESULT_STREAM, message)
+            return resp
+        except Exception as e:
+            logger.error(f"Redis send_result failed for {task_id}: {e}")
+            raise
 
     async def read_task(self, count: int = 1, block: int = 5000) -> list[dict[str, Any]]:
         if not hasattr(self, '_task_cursor'):
@@ -122,7 +130,10 @@ class MessageBus:
             "action": action,
             "timestamp": datetime.now().isoformat(),
         }
-        await self.redis.xadd(self.LOG_STREAM, log_msg)
+        try:
+            await self.redis.xadd(self.LOG_STREAM, log_msg)
+        except Exception as e:
+            logger.warning(f"Redis log failed for {task_id}: {e}")
 
     async def send_command(
         self,

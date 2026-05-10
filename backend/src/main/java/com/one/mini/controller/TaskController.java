@@ -4,6 +4,7 @@ import com.one.mini.entity.Task;
 import com.one.mini.entity.TaskStep;
 import com.one.mini.service.TaskService;
 import com.one.mini.service.MessageBusService;
+import com.one.mini.repository.TaskRepository;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
@@ -20,6 +21,7 @@ public class TaskController {
     private final TaskService taskService;
     private final MessageBusService messageBusService;
     private final ObjectMapper objectMapper;
+    private final TaskRepository taskRepository;
 
     @PostMapping
     public Task createTask(@RequestBody Map<String, Object> body) {
@@ -49,7 +51,13 @@ public class TaskController {
                 ? (Map<String, Object>) body.get("inputJson")
                 : Map.of("raw", inputJson);
 
-        messageBusService.sendTask(task.getTaskId(), toAgent, type, payload);
+        String msgId = messageBusService.sendTask(task.getTaskId(), toAgent, type, payload);
+        if (msgId == null) {
+            task = taskService.updateTaskStatus(task.getTaskId(), "failed");
+            task.setOutputJson("{\"error\":\"Redis unavailable — task could not be sent\"}");
+            taskRepository.save(task);
+            return task;
+        }
 
         TaskStep step = taskService.createTaskStep(task.getTaskId(), toAgent, inputJson);
         task = taskService.updateTaskStatus(task.getTaskId(), "running");

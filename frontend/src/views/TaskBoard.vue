@@ -301,6 +301,11 @@ async function pollTask(taskId: string) {
       if (selectedTask.value?.taskId === taskId) selectedTask.value = updated
       if (updated.status !== 'running') clearInterval(interval)
     } catch {
+      // Mark task as "polling_failed" so user sees something went wrong
+      const idx = tasks.value.findIndex(t => t.taskId === taskId)
+      if (idx >= 0) {
+        tasks.value[idx] = { ...tasks.value[idx], status: 'unknown', outputJson: '{"error":"轮询中断，请刷新页面"}' }
+      }
       clearInterval(interval)
     }
   }, 3000)
@@ -343,6 +348,7 @@ async function createTask() {
     pollTask(res.data.taskId)
   } catch (err) {
     console.error('创建任务失败:', err)
+    alert('任务创建失败，请检查服务是否正常')
   } finally {
     creating.value = false
   }

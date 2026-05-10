@@ -46,6 +46,10 @@ async def lifespan(app: FastAPI):
     }
     logger.info("AI Engine started", extra={"agents": list(agents.keys())})
 
+    # Check API key
+    if not settings.minimax_api_key or len(settings.minimax_api_key) < 30:
+        logger.warning("MINIMAX_API_KEY is missing or too short — LLM will not work. Set it in .env")
+
     # Start persistent Edge browser (CDP) — disabled: conflicts with persistent_context
     # browser = await get_browser()
     browser = None
@@ -142,11 +146,27 @@ async def _consume_tasks():
 
 @app.get("/health")
 async def health():
+    checks = {}
+    # Redis
+    try:
+        if bus and bus.redis:
+            await bus.redis.ping()
+            checks["redis"] = "ok"
+        else:
+            checks["redis"] = "not_connected"
+    except Exception:
+        checks["redis"] = "error"
+    # LLM
+    if settings.minimax_api_key and len(settings.minimax_api_key) >= 30:
+        checks["llm"] = "configured"
+    else:
+        checks["llm"] = "missing_key"
     return {
         "status": "ok",
         "service": "one-mini-ai-engine",
         "version": "0.1.0",
         "agents": list(agents.keys()),
+        "checks": checks,
     }
 
 

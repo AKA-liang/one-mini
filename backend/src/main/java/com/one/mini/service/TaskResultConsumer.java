@@ -56,16 +56,20 @@ public class TaskResultConsumer {
         try {
             redisTemplate.opsForStream().createGroup(RESULT_STREAM, CONSUMER_GROUP);
             log.info("Created consumer group '{}' for stream '{}'", CONSUMER_GROUP, RESULT_STREAM);
+            try {
+                redisTemplate.opsForStream().createGroup(LOG_STREAM, CONSUMER_GROUP);
+            } catch (Exception ignored) {
+            }
+            groupInitialized = true;
         } catch (Exception e) {
             if (e.getMessage() != null && e.getMessage().contains("BUSYGROUP")) {
                 log.debug("Consumer group '{}' already exists", CONSUMER_GROUP);
+                groupInitialized = true;
+            } else {
+                log.warn("Failed to create consumer group '{}': {}", CONSUMER_GROUP, e.getMessage());
+                // Don't set groupInitialized — retry next cycle
             }
         }
-        try {
-            redisTemplate.opsForStream().createGroup(LOG_STREAM, CONSUMER_GROUP);
-        } catch (Exception ignored) {
-        }
-        groupInitialized = true;
     }
 
     private void readAndProcessResults() {

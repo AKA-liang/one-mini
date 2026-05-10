@@ -13,8 +13,8 @@ import json
 import logging
 import os
 import re
+import threading
 import time
-from typing import Any
 
 from app.config import settings
 
@@ -22,44 +22,47 @@ logger = logging.getLogger(__name__)
 
 COMMENT_PAGE_URL = "https://creator.douyin.com/creator-micro/interactive/comment"
 
+_session_lock = threading.Lock()
+
 
 def _launch_session():
     """Launch persistent browser session for Douyin creator center."""
-    from playwright.sync_api import sync_playwright
+    with _session_lock:
+        from playwright.sync_api import sync_playwright
 
-    p = sync_playwright().start()
-    context = p.chromium.launch_persistent_context(
-        user_data_dir=settings.edge_user_data,
-        headless=False,
-        channel="msedge",
-        args=[f"--profile-directory={settings.edge_profile_dir}"],
-        ignore_default_args=["--enable-automation"],
-    )
-    page = context.pages[0] if context.pages else context.new_page()
-    context.add_init_script("""
-        Object.defineProperty(navigator, 'webdriver', {get: () => undefined});
-        Object.defineProperty(navigator, 'plugins', {get: () => [1,2,3,4,5]});
-        window.chrome = { runtime: {} };
-    """)
-    context.set_default_timeout(30000)
+        p = sync_playwright().start()
+        context = p.chromium.launch_persistent_context(
+            user_data_dir=settings.edge_user_data,
+            headless=False,
+            channel="msedge",
+            args=[f"--profile-directory={settings.edge_profile_dir}"],
+            ignore_default_args=["--enable-automation"],
+        )
+        page = context.pages[0] if context.pages else context.new_page()
+        context.add_init_script("""
+            Object.defineProperty(navigator, 'webdriver', {get: () => undefined});
+            Object.defineProperty(navigator, 'plugins', {get: () => [1,2,3,4,5]});
+            window.chrome = { runtime: {} };
+        """)
+        context.set_default_timeout(30000)
 
-    # Login check — navigate to creator center and verify session
-    try:
-        page.goto(COMMENT_PAGE_URL, wait_until="domcontentloaded", timeout=30000)
-        page.wait_for_timeout(3000)
-        cur_url = page.url
-        if "login" in cur_url.lower() or "passport" in cur_url.lower() or "douyinec.com" in cur_url:
-            logger.warning("Douyin: Not logged into creator.douyin.com — login required in Edge")
+        # Login check — navigate to creator center and verify session
+        try:
+            page.goto(COMMENT_PAGE_URL, wait_until="domcontentloaded", timeout=30000)
+            page.wait_for_timeout(3000)
+            cur_url = page.url
+            if "login" in cur_url.lower() or "passport" in cur_url.lower() or "douyinec.com" in cur_url:
+                logger.warning("Douyin: Not logged into creator.douyin.com — login required in Edge")
+                context.close()
+                p.stop()
+                return None, None, None
+        except Exception as e:
+            logger.warning(f"Douyin: Login check failed — {e}")
             context.close()
             p.stop()
             return None, None, None
-    except Exception as e:
-        logger.warning(f"Douyin: Login check failed — {e}")
-        context.close()
-        p.stop()
-        return None, None, None
 
-    return p, context, page
+        return p, context, page
 
 
 def list_works() -> list[dict[str, Any]]:
