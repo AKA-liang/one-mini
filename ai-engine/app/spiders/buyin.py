@@ -302,6 +302,11 @@ def _search_via_persistent_context(keyword: str) -> list[dict[str, Any]]:
                 ignore_default_args=["--enable-automation", "--no-sandbox"],
             )
             page = context.pages[0] if context.pages else context.new_page()
+            context.add_init_script("""
+                Object.defineProperty(navigator, 'webdriver', {get: () => undefined});
+                Object.defineProperty(navigator, 'plugins', {get: () => [1,2,3,4,5]});
+                window.chrome = { runtime: {} };
+            """)
             page.goto(PICKING_LIBRARY_URL, wait_until="domcontentloaded", timeout=45000)
             page.wait_for_timeout(6000)
 

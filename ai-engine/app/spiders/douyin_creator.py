@@ -35,6 +35,11 @@ def _launch_session():
         ignore_default_args=["--enable-automation"],
     )
     page = context.pages[0] if context.pages else context.new_page()
+    context.add_init_script("""
+        Object.defineProperty(navigator, 'webdriver', {get: () => undefined});
+        Object.defineProperty(navigator, 'plugins', {get: () => [1,2,3,4,5]});
+        window.chrome = { runtime: {} };
+    """)
     context.set_default_timeout(30000)
     return p, context, page
 

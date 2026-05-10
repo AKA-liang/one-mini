@@ -46,7 +46,7 @@
 
     <div v-else class="space-y-4">
       <div
-        v-for="task in tasks"
+        v-for="task in (showAllTasks ? tasks : tasks.slice(0, 3))"
         :key="task.taskId"
         class="glass-card-hover p-5 cursor-pointer"
         @click="selectTask(task)"
@@ -71,18 +71,20 @@
         <!-- Steps Flow -->
         <div v-if="task.steps && task.steps.length" class="flex items-center gap-2 flex-wrap">
           <template v-for="(step, idx) in task.steps" :key="step.id">
-            <div class="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-surface-200/50 text-xs">
-              <span class="font-medium" :class="stepStatusColor(step.status)">{{ step.agentName }}</span>
-              <span :class="stepStatusBadgeClass(step.status)">{{ stepStatusIcon(step.status) }}</span>
-            </div>
-            <ChevronRight v-if="idx < task.steps.length - 1" :size="14" class="text-gray-600" />
+            <ChevronRight v-if="idx > 0" :size="12" class="text-gray-600" />
+            <span class="text-xs text-gray-400">{{ step.agentName }}</span>
           </template>
         </div>
+      </div>
 
-        <!-- Output Preview -->
-        <div v-if="getOutputPreview(task)" class="mt-3 p-3 rounded-lg bg-surface-200/30 border border-white/5">
-          <p class="text-xs text-gray-400 line-clamp-2">{{ getOutputPreview(task) }}</p>
-        </div>
+      <!-- Expand/collapse toggle -->
+      <div v-if="tasks.length > 3" class="text-center py-2">
+        <button
+          @click="showAllTasks = !showAllTasks"
+          class="text-xs text-primary-400 hover:text-primary-300 transition-colors"
+        >
+          {{ showAllTasks ? '收起历史任务' : `查看全部 (${tasks.length - 3} 个历史任务)` }}
+        </button>
       </div>
     </div>
 
@@ -140,13 +142,22 @@
         <div v-if="showCreateModal" class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm" @click.self="showCreateModal = false">
           <div class="w-full max-w-md glass-card p-6">
             <div class="flex items-center justify-between mb-4">
-              <h3 class="text-lg font-bold text-white">新建选品任务</h3>
+              <h3 class="text-lg font-bold text-white">新建任务</h3>
               <button @click="showCreateModal = false" class="text-gray-400 hover:text-white transition-colors">
                 <X :size="20" />
               </button>
             </div>
 
             <div class="space-y-4">
+              <div>
+                <label class="block text-sm text-gray-300 mb-1.5">任务类型</label>
+                <select v-model="newTaskType" class="w-full px-3 py-2.5 bg-surface-200/50 border border-white/10 rounded-xl text-sm text-white focus:border-primary-400/50 focus:outline-none transition-colors">
+                  <option value="product_analysis">选品分析</option>
+                  <option value="comment_auto_reply">评论管理</option>
+                </select>
+              </div>
+
+              <div v-if="newTaskType === 'product_analysis'">
               <div>
                 <label class="block text-sm text-gray-300 mb-1.5">关键词</label>
                 <input
@@ -193,10 +204,10 @@
                   class="w-full px-3 py-2.5 bg-surface-200/50 border border-white/10 rounded-xl text-sm text-white placeholder-gray-500 focus:border-primary-400/50 focus:outline-none transition-colors"
                 />
               </div>
+              </div>  <!-- end v-if product_analysis -->
 
               <button class="btn-primary w-full mt-2" @click="createTask" :disabled="creating">
-                <Loader2 v-if="creating" :size="16" class="animate-spin mr-2" />
-                {{ creating ? '创建中...' : '开始分析' }}
+                {{ creating ? '创建中...' : (newTaskType === 'comment_auto_reply' ? '开始评论管理' : '开始分析') }}
               </button>
             </div>
           </div>
@@ -211,7 +222,7 @@ import { ref, computed, onMounted } from 'vue'
 import { taskApi, type TaskVO } from '../api/task'
 import ProductGrid from '../components/ProductGrid.vue'
 import RoiChart from '../components/RoiChart.vue'
-import { Plus, ClipboardList, Clock, ChevronRight, X, Loader2 } from 'lucide-vue-next'
+import { Plus, ClipboardList, Clock, ChevronRight, X } from 'lucide-vue-next'
 
 const tasks = ref<TaskVO[]>([])
 const loading = ref(false)
@@ -220,10 +231,12 @@ const showCreateModal = ref(false)
 const creating = ref(false)
 
 const newTaskKeywords = ref('抖音热销,美妆护肤')
+const newTaskType = ref('product_analysis')
 const newTaskPlatform = ref('douyin')
 const newTaskLimit = ref(10)
 const newTaskBudget = ref('')
 const newTaskCategory = ref('')
+const showAllTasks = ref(false)
 
 const runningCount = computed(() => tasks.value.filter(t => t.status === 'running').length)
 const completedCount = computed(() => tasks.value.filter(t => t.status === 'completed').length)
@@ -235,7 +248,7 @@ function statusLabel(status: string): string {
 }
 
 function typeLabel(type: string): string {
-  const map: Record<string, string> = { product_analysis: '选品分析', finance_review: '财务审核' }
+  const map: Record<string, string> = { product_analysis: '选品分析', finance_review: '财务审核', comment_auto_reply: '评论管理' }
   return map[type] || type
 }
 
@@ -247,16 +260,6 @@ function statusBadgeClass(status: string): string {
     failed: 'badge-failed',
   }
   return map[status] || 'badge-pending'
-}
-
-function stepStatusColor(status: string): string {
-  const map: Record<string, string> = {
-    pending: 'text-gray-400',
-    running: 'text-primary-400',
-    completed: 'text-emerald-400',
-    failed: 'text-red-400',
-  }
-  return map[status] || 'text-gray-400'
 }
 
 function stepStatusBadgeClass(status: string): string {
@@ -301,42 +304,6 @@ async function pollTask(taskId: string) {
   }, 3000)
 }
 
-function getOutputPreview(task: TaskVO): string {
-  if (!task.outputJson) return ''
-  try {
-    const data = JSON.parse(task.outputJson)
-    if (data.products && Array.isArray(data.products)) {
-      return `发现 ${data.products.length} 个推荐商品 · ${data.market_summary || data.trend_analysis || ''}`
-    }
-    if (data.overall_assessment) {
-      return data.overall_assessment
-    }
-    return JSON.stringify(data).slice(0, 120)
-  } catch {
-    return task.outputJson.slice(0, 120)
-  }
-}
-
-function hasProducts(task: TaskVO): boolean {
-  if (!task.outputJson) return false
-  try {
-    const data = JSON.parse(task.outputJson)
-    return Array.isArray(data.products) && data.products.length > 0
-  } catch {
-    return false
-  }
-}
-
-function parseProducts(task: TaskVO): any[] {
-  if (!task.outputJson) return []
-  try {
-    const data = JSON.parse(task.outputJson)
-    return data.products || []
-  } catch {
-    return []
-  }
-}
-
 async function loadTasks() {
   loading.value = true
   try {
@@ -355,15 +322,15 @@ async function createTask() {
   creating.value = true
   try {
     const keywords = newTaskKeywords.value.split(',').map(k => k.trim()).filter(Boolean)
+    const basePayload: Record<string, unknown> = { keywords, platform: newTaskPlatform.value, limit: newTaskLimit.value }
+    if (newTaskBudget.value) basePayload.budget = newTaskBudget.value
+    if (newTaskCategory.value) basePayload.category = newTaskCategory.value
+
     const res = await taskApi.create({
-      type: 'product_analysis',
-      inputJson: {
-        keywords,
-        platform: newTaskPlatform.value,
-        limit: newTaskLimit.value,
-        ...(newTaskBudget.value ? { budget: newTaskBudget.value } : {}),
-        ...(newTaskCategory.value ? { category: newTaskCategory.value } : {}),
-      },
+      type: newTaskType.value as 'product_analysis' | 'comment_auto_reply',
+      inputJson: newTaskType.value === 'comment_auto_reply'
+        ? { action: 'auto_reply', reply_limit: newTaskLimit.value }
+        : basePayload,
     })
     tasks.value.unshift(res.data)
     showCreateModal.value = false
@@ -373,6 +340,16 @@ async function createTask() {
   } finally {
     creating.value = false
   }
+}
+
+function hasProducts(task: TaskVO): boolean {
+  if (!task.outputJson) return false
+  try { const d = JSON.parse(task.outputJson); return Array.isArray(d.products) && d.products.length > 0 } catch { return false }
+}
+
+function parseProducts(task: TaskVO): any[] {
+  if (!task.outputJson) return []
+  try { const d = JSON.parse(task.outputJson); return d.products || [] } catch { return [] }
 }
 
 onMounted(loadTasks)
