@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import re
 import time
 from typing import Any
@@ -350,10 +351,14 @@ def publish_imagetext(title: str, image_paths: list[str],
 
         # Fill description
         if description:
-            desc_input = page.get_by_placeholder("添加作品标题").first
-            desc_input.press("Tab")
-            page.wait_for_timeout(300)
-            page.keyboard.type(description[:1000])
+            desc_input = page.get_by_placeholder("添加描述").first
+            try:
+                desc_input.fill(description[:1000])
+            except Exception:
+                # Fallback: Tab to next field
+                title_input.press("Tab")
+                page.wait_for_timeout(300)
+                page.keyboard.type(description[:1000])
             page.wait_for_timeout(500)
 
         if not dry_run:
