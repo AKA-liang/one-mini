@@ -11,6 +11,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 
 from app.agents.product_picker import ProductPickerAgent
 from app.agents.finance_analyst import FinanceAnalystAgent
+from app.agents.douyin_operator import DouyinOperatorAgent
 from app.message_bus import MessageBus, get_message_bus
 from app.logger import init_logging, get_logger
 from app.spiders.browser import get_browser
@@ -41,6 +42,7 @@ async def lifespan(app: FastAPI):
     agents = {
         "product_picker": ProductPickerAgent(bus),
         "finance_analyst": FinanceAnalystAgent(bus),
+        "douyin_operator": DouyinOperatorAgent(bus),
     }
     logger.info("AI Engine started", extra={"agents": list(agents.keys())})
 

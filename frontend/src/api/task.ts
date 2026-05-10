@@ -26,8 +26,8 @@ export interface TaskVO {
   inputJson: string
   outputJson: string
   steps: TaskStepVO[]
-  createdAt: string
-  updatedAt: string
+  createTime: string
+  updateTime: string
 }
 
 export interface AgentLogVO {

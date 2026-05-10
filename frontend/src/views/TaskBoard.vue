@@ -61,12 +61,12 @@
           </div>
           <div class="flex items-center gap-2 text-xs text-gray-500">
             <Clock :size="12" />
-            {{ formatTime(task.createdAt) }}
+            {{ formatTime(task.createTime) }}
           </div>
         </div>
 
         <!-- Task Time -->
-        <div class="text-xs text-gray-500 mb-3">创建于 {{ formatTime(task.createdAt) }}</div>
+        <div class="text-xs text-gray-500 mb-3">创建于 {{ formatTime(task.createTime) }}</div>
 
         <!-- Steps Flow -->
         <div v-if="task.steps && task.steps.length" class="flex items-center gap-2 flex-wrap">
@@ -342,7 +342,7 @@ async function loadTasks() {
   try {
     const res = await taskApi.list()
     tasks.value = (res.data || []).sort((a, b) =>
-      new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime()
+      new Date(b.createTime || 0).getTime() - new Date(a.createTime || 0).getTime()
     )
   } catch {
     tasks.value = []
