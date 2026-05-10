@@ -51,7 +51,7 @@ class ContentCreatorAgent(BaseAgent):
     def __init__(self, bus: MessageBus):
         super().__init__(bus)
 
-    async def process(self, task_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+    async def process(self, task_id: str, payload: dict[str, Any], action: str = "") -> dict[str, Any]:
         # Accept product_analysis from product_picker or finance_analyst chain result
         product_analysis = payload.get("product_analysis", {})
         if not product_analysis:

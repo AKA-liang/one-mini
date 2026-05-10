@@ -66,7 +66,7 @@ class ProductPickerAgent(BaseAgent):
     def __init__(self, bus: MessageBus):
         super().__init__(bus)
 
-    async def process(self, task_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+    async def process(self, task_id: str, payload: dict[str, Any], action: str = "") -> dict[str, Any]:
         keywords = payload.get("keywords", [])
         limit = payload.get("limit", 10)
         budget = payload.get("budget")

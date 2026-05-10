@@ -76,7 +76,7 @@ class FinanceAnalystAgent(BaseAgent):
     def __init__(self, bus: MessageBus):
         super().__init__(bus)
 
-    async def process(self, task_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+    async def process(self, task_id: str, payload: dict[str, Any], action: str = "") -> dict[str, Any]:
         product_data = payload.get("products", payload.get("product_analysis", {}))
 
         await self.bus.log(task_id, self.name, "info", f"Starting finance analysis for task {task_id}")

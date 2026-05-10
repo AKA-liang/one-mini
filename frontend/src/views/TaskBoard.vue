@@ -298,7 +298,7 @@ function stepStatusIcon(status: string): string {
 
 function formatTime(dateStr: string): string {
   if (!dateStr) return ''
-  return new Date(dateStr).toLocaleString('zh-CN')
+  return new Date(dateStr).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' })
 }
 
 function selectTask(task: TaskVO) {

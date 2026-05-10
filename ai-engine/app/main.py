@@ -100,7 +100,7 @@ async def _consume_tasks():
                 # Auto-chain: if product_analysis finishes, trigger finance_review
                 if to_agent == "product_picker":
                     try:
-                        result = await agent.run(task_id, payload)
+                        result = await agent.run(task_id, payload, action)
                         processed += 1
                         logger.info(f"ProductPicker completed task {task_id} (#{processed})")
                         # Chain to finance_analyst
@@ -127,7 +127,7 @@ async def _consume_tasks():
 
                 elif to_agent == "finance_analyst":
                     try:
-                        result = await agent.run(task_id, payload)
+                        result = await agent.run(task_id, payload, action)
                         processed += 1
                         logger.info(f"FinanceAnalyst completed task {task_id} (#{processed})")
                         # Chain to content_creator
@@ -152,7 +152,7 @@ async def _consume_tasks():
 
                 else:
                     try:
-                        await agent.run(task_id, payload)
+                        await agent.run(task_id, payload, action)
                         logger.info(f"Agent {to_agent} completed task {task_id}")
                     except Exception as e:
                         await bus.log(task_id, "router", "error", f"Agent failed: {e}")

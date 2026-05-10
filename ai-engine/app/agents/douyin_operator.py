@@ -45,15 +45,15 @@ class DouyinOperatorAgent(BaseAgent):
     def __init__(self, bus: MessageBus):
         super().__init__(bus)
 
-    async def process(self, task_id: str, payload: dict[str, Any]) -> dict[str, Any]:
-        action = payload.get("action", "auto_reply")
+    async def process(self, task_id: str, payload: dict[str, Any], action: str = "") -> dict[str, Any]:
+        action = action or payload.get("action", "auto_reply")
         work_title = payload.get("work_title", "")
         reply_limit = payload.get("reply_limit", 20)
 
         await self.bus.log(task_id, self.name, "info", f"Starting: action={action}")
 
         # ─── Action: auto_reply (comment management) ───
-        if action == "auto_reply":
+        if action in ("auto_reply", "comment_auto_reply"):
             return await self._handle_auto_reply(task_id, work_title, reply_limit)
 
         # ─── Action: publish_article ───

@@ -14,13 +14,13 @@ class BaseAgent(ABC):
         self.bus = bus
 
     @abstractmethod
-    async def process(self, task_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+    async def process(self, task_id: str, payload: dict[str, Any], action: str = "") -> dict[str, Any]:
         pass
 
-    async def run(self, task_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+    async def run(self, task_id: str, payload: dict[str, Any], action: str = "") -> dict[str, Any]:
         await self.bus.log(task_id, self.name, "info", f"Agent {self.name} started processing")
         try:
-            result = await self.process(task_id, payload)
+            result = await self.process(task_id, payload, action)
             await self.bus.send_result(task_id, self.name, result, "completed")
             await self.bus.log(task_id, self.name, "info", f"Agent {self.name} completed successfully")
             return result
