@@ -8,7 +8,7 @@
       </div>
       <button class="btn-primary flex items-center gap-2" @click="showCreateModal = true">
         <Plus :size="16" />
-        新建选品任务
+        新建任务
       </button>
     </div>
 
@@ -41,7 +41,7 @@
     <div v-else-if="tasks.length === 0" class="glass-card p-12 flex flex-col items-center">
       <ClipboardList :size="48" class="text-gray-600" />
       <p class="text-gray-400 mt-4">暂无任务</p>
-      <p class="text-xs text-gray-500 mt-1">点击「新建选品任务」开始</p>
+      <p class="text-xs text-gray-500 mt-1">点击「新建任务」开始</p>
     </div>
 
     <div v-else class="space-y-4">

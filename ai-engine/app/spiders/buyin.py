@@ -238,7 +238,7 @@ def _search_via_persistent_context(keyword: str) -> list[dict[str, Any]]:
                 headless=False, channel="msedge",
                 args=["--disable-infobars", f"--profile-directory={settings.edge_profile_dir}"],
                 viewport={"width": 1920, "height": 1080}, locale="zh-CN",
-                ignore_default_args=["--enable-automation", "--no-sandbox"],
+                ignore_default_args=["--enable-automation"],
             )
             page = context.pages[0] if context.pages else context.new_page()
             context.add_init_script("""
