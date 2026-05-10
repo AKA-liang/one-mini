@@ -13,10 +13,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-import os
-import random
 import re
-import time
 from typing import Any
 
 from app.spiders.cookie_manager import get_chanmama_cookie_string, has_chanmama_cookies
@@ -221,81 +218,15 @@ def _search_via_persistent_context(keyword: str) -> list[dict[str, Any]]:
     return captured_items
 
 
-def _delete_chanmama_locks():
-    for name in [os.path.join(settings.edge_profile_dir, "LOCK"),
-                 os.path.join(settings.edge_profile_dir, "SingletonLock")]:
-        fp = os.path.join(settings.edge_user_data, name)
-        try:
-            if os.path.isdir(fp):
-                import shutil
-                shutil.rmtree(fp, ignore_errors=True)
-            elif os.path.exists(fp):
-                os.remove(fp)
-        except Exception:
-            pass
-
-
 def search_hot_products_persistent(
     keyword: str = "",
     limit: int = 20,
 ) -> list[dict[str, Any]]:
     """
-    Primary: use persistent CDP browser (same Edge as user).
-    Falls back to persistent_context if CDP unavailable.
+    Primary: persistent_context with real Edge profile + API interception.
     """
     limit = min(limit, _MAX_ITEMS)
-
-    try:
-        from app.spiders.browser import get_browser
-        import asyncio
-
-        async def _search():
-            browser = await get_browser()
-            page = await browser.new_page()
-
-            url = f"{CHANMAMA_BASE_URL}/SPUrank/?keyword={keyword}"
-            logger.info(f"Chanmama(CDP): {url}")
-
-            captured_items: list[dict[str, Any]] = []
-
-            async def _on_response(response):
-                try:
-                    if response.status == 200 and "/v1/spu/search" in response.url:
-                        body = await response.json()
-                        data = body.get("data", {}).get("list", [])
-                        if isinstance(data, list):
-                            captured_items.extend(data)
-                except Exception:
-                    pass
-
-            page.on("response", _on_response)
-            await page.goto(url, wait_until="networkidle", timeout=45000)
-
-            # Wait for API + table render
-            try:
-                await page.wait_for_selector('table, [class*="row"]', timeout=15000)
-            except Exception:
-                pass
-            await asyncio.sleep(3)
-
-            # Error detection
-            body_text = await page.evaluate("document.body.innerText || ''")
-            errors = {"网络异常": "Network error", "系统错误": "System error",
-                       "验证": "Captcha detected"}
-            for pat, msg in errors.items():
-                if pat in body_text:
-                    logger.warning(f"Chanmama: Error — {msg}")
-                    await page.close()
-                    return []
-
-            await page.close()
-            return captured_items
-
-        captured_items = asyncio.run(_search())
-
-    except Exception as e:
-        logger.warning(f"Chanmama(CDP) failed: {e} — falling back to persistent_context")
-        captured_items = _search_via_persistent_context(keyword)
+    captured_items = _search_via_persistent_context(keyword)
 
     products = []
     seen: set[str] = set()

@@ -55,12 +55,13 @@ def list_works() -> list[dict[str, Any]]:
         page.wait_for_timeout(5000)
 
         # Click "选择作品" button
-        select_btn = page.query_selector('button:has-text("选择作品"), [role="button"]:has-text("选择作品")')
+        select_btn = page.locator('button:has-text("选择作品"), [role="button"]:has-text("选择作品")').first
         if not select_btn:
             logger.warning("Douyin: '选择作品' button not found — may need manual login")
+            context.close()
+            p.stop()
             return []
-
-        select_btn.first.click()
+        select_btn.click()
         page.wait_for_timeout(3000)
 
         # Extract works from side panel
@@ -134,8 +135,8 @@ def export_comments(work_title: str, limit: int = 200) -> dict[str, Any]:
             for (const item of items) {{
                 const text = (item.innerText || '').replace(/\\s+/g, ' ').trim();
                 const replyBtn = item.querySelector('button:has-text("回复")');
-                const isReplied = !replyBtn || replyBtn.textContent.includes('已回复');
-                if (isReplied) continue;
+                // Unreplied comments have a "回复" button; replied ones don't
+                if (!replyBtn) continue;
                 const lines = text.split('\\n').filter(l => l.trim());
                 results.push({{
                     username: lines[0] || '',
@@ -288,7 +289,7 @@ def publish_article(title: str, content: str, image_path: str = "",
                 upload_area.click()
             fc_info.value.set_files(image_path)
             page.wait_for_timeout(3000)
-            confirm = page.get_by_role("button", name="确定").first
+            confirm = page.locator('button:has-text("确定")').last
             confirm.click()
             page.wait_for_timeout(3000)
 
@@ -341,7 +342,11 @@ def publish_imagetext(title: str, image_paths: list[str],
             with page.expect_file_chooser(timeout=10000) as fc_info:
                 upload_btn.click()
             fc_info.value.set_files(image_paths)
-            page.wait_for_timeout(5000)
+            # Wait for images to appear in the upload area
+            try:
+                page.wait_for_selector('img[src], [class*="upload"] img, [class*="image"]', timeout=15000)
+            except Exception:
+                page.wait_for_timeout(8000)
 
         # Fill title
         if title:

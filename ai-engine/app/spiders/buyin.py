@@ -150,67 +150,6 @@ def search_buyin(keyword: str = "", limit: int = 10) -> list[dict[str, Any]]:
 
     try:
         from app.spiders.browser import get_browser
-
-        async def _do_search():
-            browser = await get_browser()
-            page = await browser.new_page()
-
-            # Navigate to picking library
-            await page.goto(PICKING_LIBRARY_URL, wait_until="networkidle", timeout=60000)
-
-            # Wait for SPA to render the search input
-            await page.wait_for_selector('.auxo-input, input[type="search"]', timeout=20000)
-            await page.wait_for_timeout(3000)
-
-            # Find and use search input
-            search_input = await page.query_selector('.auxo-input, input[type="search"]')
-            if search_input:
-                await search_input.click()
-                await page.wait_for_timeout(500)
-                await search_input.type(keyword, delay=50)
-                await page.wait_for_timeout(500)
-                await search_input.press("Enter")
-
-                # Wait for search results to load
-                try:
-                    await page.wait_for_selector('text=/到手价/', timeout=25000)
-                except Exception:
-                    pass
-                await page.wait_for_timeout(5000)
-
-                # Scroll to load more
-                for _ in range(3):
-                    await page.mouse.wheel(0, 800)
-                    await page.wait_for_timeout(1000)
-                await page.wait_for_timeout(3000)
-
-                logger.info(f"Buyin: Searched for '{keyword}'")
-            else:
-                logger.warning("Buyin: Search input not found")
-
-            # Error detection
-            body_text = await page.evaluate("document.body.innerText || ''")
-            error_patterns = [
-                ("网络不稳定", "Network unstable"),
-                ("请稍后再试", "Please retry later"),
-                ("登录", "Login required"),
-                ("验证", "Captcha/verification detected"),
-                ("请求失败", "Request failed"),
-                ("系统错误", "System error"),
-            ]
-            for pat, msg in error_patterns:
-                if pat in body_text:
-                    logger.warning(f"Buyin: Browser error — {msg}")
-                    print(f"[Buyin] ⚠️ {msg}", file=sys.stderr, flush=True)
-                    await page.close()
-                    return []
-
-            # Extract product data
-            data = await page.evaluate(_SEARCH_EXTRACT_JS)
-            await page.close()
-            return data
-
-        from app.spiders.browser import get_browser
         import asyncio as _asyncio
 
         async def _search():
