@@ -158,6 +158,10 @@ async def _consume_tasks():
                         await bus.log(task_id, "router", "error", f"Agent failed: {e}")
                         logger.error(f"Agent {to_agent} failed for task {task_id}: {e}", exc_info=True)
 
+                redis_id = msg.get("_redis_id")
+                if redis_id:
+                    await bus.ack_task(redis_id)
+
         except Exception as e:
             logger.error(f"Consumer loop error: {e}", exc_info=True)
             await asyncio.sleep(1)

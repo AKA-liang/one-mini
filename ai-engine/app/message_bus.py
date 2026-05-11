@@ -138,7 +138,7 @@ class MessageBus:
 
     async def read_task(self, count: int = 1, block: int = 5000) -> list[dict[str, Any]]:
         if not hasattr(self, '_task_cursor'):
-            self._task_cursor = "0"
+            self._task_cursor = "$"
         streams = {self.TASK_STREAM: self._task_cursor}
         messages = await self.redis.xread(streams, count=count, block=block)
         result = []
@@ -149,6 +149,14 @@ class MessageBus:
                 result.append(parsed)
                 self._task_cursor = msg_id
         return result
+
+    async def ack_task(self, redis_id: str) -> bool:
+        """Delete a processed task message from the stream."""
+        try:
+            count = await self.redis.xdel(self.TASK_STREAM, redis_id)
+            return count > 0
+        except Exception:
+            return False
 
     async def read_result(self, count: int = 1, block: int = 5000) -> list[dict[str, Any]]:
         if not hasattr(self, '_result_cursor'):
