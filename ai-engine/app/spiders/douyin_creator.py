@@ -14,6 +14,7 @@ import json
 import logging
 import os
 import re
+import subprocess
 import threading
 import time
 from typing import Any
@@ -34,43 +35,72 @@ META_PATTERN = re.compile(r"发布于|\d{4}[/-]\d|赞|回复|举报|置顶")
 CONTROL_PATTERN = re.compile(r"^(回复|收起|暂无|没有更多|条回复)$")
 
 
+def _kill_edge():
+    """Force kill Edge to release profile lock before launching."""
+    subprocess.run("taskkill /F /IM msedge.exe 2>nul", shell=True,
+                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    time.sleep(1.5)
+
+
+def _safe_cdp_cleanup(p, context):
+    """Close context and stop playwright without crashing."""
+    if context:
+        try:
+            context.close()
+        except Exception:
+            pass
+    if p:
+        try:
+            p.stop()
+        except Exception:
+            pass
+
+
 def _launch_session():
-    """Launch persistent browser session for Douyin creator center."""
+    """Launch persistent browser session for Douyin creator center.
+    Kills Edge first, retries up to 3 times on failure."""
     with _session_lock:
+        _kill_edge()
         from playwright.sync_api import sync_playwright
 
-        p = sync_playwright().start()
-        context = p.chromium.launch_persistent_context(
-            user_data_dir=settings.edge_user_data,
-            headless=False,
-            channel="msedge",
-            args=[f"--profile-directory={settings.edge_profile_dir}"],
-            ignore_default_args=["--enable-automation"],
-        )
-        page = context.pages[0] if context.pages else context.new_page()
-        context.add_init_script("""
-            Object.defineProperty(navigator, 'webdriver', {get: () => undefined});
-            Object.defineProperty(navigator, 'plugins', {get: () => [1,2,3,4,5]});
-            window.chrome = { runtime: {} };
-        """)
-        context.set_default_timeout(30000)
+        for attempt in range(3):
+            p = None
+            context = None
+            try:
+                p = sync_playwright().start()
+                context = p.chromium.launch_persistent_context(
+                    user_data_dir=settings.edge_user_data,
+                    headless=False,
+                    channel="msedge",
+                    args=[f"--profile-directory={settings.edge_profile_dir}"],
+                    ignore_default_args=["--enable-automation"],
+                )
+                page = context.pages[0] if context.pages else context.new_page()
+                context.add_init_script("""
+                    Object.defineProperty(navigator, 'webdriver', {get: () => undefined});
+                    Object.defineProperty(navigator, 'plugins', {get: () => [1,2,3,4,5]});
+                    window.chrome = { runtime: {} };
+                """)
+                context.set_default_timeout(30000)
 
-        try:
-            page.goto(COMMENT_PAGE_URL, wait_until="domcontentloaded", timeout=30000)
-            page.wait_for_timeout(3000)
-            cur_url = page.url
-            if "login" in cur_url.lower() or "passport" in cur_url.lower() or "douyinec.com" in cur_url:
-                logger.warning("Douyin: Not logged into creator.douyin.com — login required in Edge")
-                context.close()
-                p.stop()
-                return None, None, None
-        except Exception as e:
-            logger.warning(f"Douyin: Login check failed — {e}")
-            context.close()
-            p.stop()
-            return None, None, None
+                page.goto(COMMENT_PAGE_URL, wait_until="domcontentloaded", timeout=30000)
+                page.wait_for_timeout(3000)
+                cur_url = page.url
+                if "login" in cur_url.lower() or "passport" in cur_url.lower() or "douyinec.com" in cur_url:
+                    logger.warning("Douyin: Not logged into creator.douyin.com — login required in Edge")
+                    _safe_cdp_cleanup(p, context)
+                    return None, None, None
 
-        return p, context, page
+                return p, context, page
+            except Exception as e:
+                logger.warning(f"Douyin launch attempt {attempt + 1}/3 failed: {e}")
+                _safe_cdp_cleanup(p, context)
+                if attempt < 2:
+                    _kill_edge()
+                    time.sleep(3)
+                else:
+                    logger.error("Douyin: all 3 launch attempts failed")
+                    return None, None, None
 
 
 # ─── Scroll Container Detection ─────────────────────────────────────────
@@ -423,8 +453,7 @@ def list_works() -> list[dict[str, Any]]:
             select_btn.wait_for(state="visible", timeout=10000)
         except Exception:
             logger.warning("Douyin: '选择作品' button not found")
-            context.close()
-            p.stop()
+            _safe_cdp_cleanup(p, context)
             return []
         select_btn.click()
         page.wait_for_timeout(3000)
@@ -462,8 +491,7 @@ def list_works() -> list[dict[str, Any]]:
     except Exception as e:
         logger.warning(f"Douyin list_works failed: {e}")
     finally:
-        context.close()
-        p.stop()
+        _safe_cdp_cleanup(p, context)
 
     return works
 
@@ -488,8 +516,7 @@ def export_comments(work_title: str, limit: int = 200) -> dict[str, Any]:
             select_btn.wait_for(state="visible", timeout=10000)
         except Exception:
             logger.warning("Douyin: '选择作品' button not found")
-            context.close()
-            p.stop()
+            _safe_cdp_cleanup(p, context)
             return result
         select_btn.click()
         page.wait_for_timeout(3000)
@@ -497,8 +524,7 @@ def export_comments(work_title: str, limit: int = 200) -> dict[str, Any]:
         # Select target work
         if not _match_work_in_panel(page, work_title):
             logger.warning(f"Douyin: Work '{work_title[:30]}' not found in panel")
-            context.close()
-            p.stop()
+            _safe_cdp_cleanup(p, context)
             return result
         page.wait_for_timeout(4000)
 
@@ -542,8 +568,7 @@ def export_comments(work_title: str, limit: int = 200) -> dict[str, Any]:
     except Exception as e:
         logger.warning(f"Douyin export_comments failed: {e}")
     finally:
-        context.close()
-        p.stop()
+        _safe_cdp_cleanup(p, context)
 
     return result
 
@@ -658,16 +683,14 @@ def reply_comments(reply_plan: list[dict[str, Any]], work_title: str) -> dict[st
             select_btn.wait_for(state="visible", timeout=10000)
         except Exception:
             logger.warning("Douyin: '选择作品' button not found")
-            context.close()
-            p.stop()
+            _safe_cdp_cleanup(p, context)
             return {"total": len(reply_plan), "replied": 0, "results": []}
         select_btn.click()
         page.wait_for_timeout(3000)
 
         if not _match_work_in_panel(page, work_title):
             logger.warning(f"Douyin: Work '{work_title[:30]}' not found for reply")
-            context.close()
-            p.stop()
+            _safe_cdp_cleanup(p, context)
             return {"total": len(reply_plan), "replied": 0, "results": []}
         page.wait_for_timeout(4000)
 
@@ -709,8 +732,7 @@ def reply_comments(reply_plan: list[dict[str, Any]], work_title: str) -> dict[st
     except Exception as e:
         logger.warning(f"Douyin reply_comments failed: {e}")
     finally:
-        context.close()
-        p.stop()
+        _safe_cdp_cleanup(p, context)
 
     return {"total": len(reply_plan), "replied": sum(1 for r in results if "replied" in r.get("status", "")),
             "results": results}
@@ -782,8 +804,7 @@ def publish_article(title: str, content: str, image_path: str = "",
         result["status"] = "failed"
         result["error"] = str(e)
     finally:
-        context.close()
-        p.stop()
+        _safe_cdp_cleanup(p, context)
 
     return result
 
@@ -850,7 +871,6 @@ def publish_imagetext(title: str, image_paths: list[str],
         result["status"] = "failed"
         result["error"] = str(e)
     finally:
-        context.close()
-        p.stop()
+        _safe_cdp_cleanup(p, context)
 
     return result
